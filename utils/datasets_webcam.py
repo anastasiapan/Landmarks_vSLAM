@@ -16,9 +16,6 @@ from tqdm import tqdm
 
 from utils.utils import xyxy2xywh, xywh2xyxy
 
-from primesense import openni2
-from primesense import _openni2 as c_api
-
 help_url = 'https://github.com/ultralytics/yolov5/wiki/Train-Custom-Data'
 img_formats = ['.bmp', '.jpg', '.jpeg', '.png', '.tif', '.dng']
 vid_formats = ['.mov', '.avi', '.mp4', '.mpg', '.mpeg', '.m4v', '.wmv', '.mkv']
@@ -93,7 +90,7 @@ class LoadImages:  # for inference
                     ret_val, img0 = self.cap.read()
 
             self.frame += 1
-            #print('video %g/%g (%g/%g) %s: ' % (self.count + 1, self.nF, self.frame, self.nframes, path), end='')
+            print('video %g/%g (%g/%g) %s: ' % (self.count + 1, self.nF, self.frame, self.nframes, path), end='')
 
         else:
             # Read image
@@ -109,9 +106,8 @@ class LoadImages:  # for inference
         img = img[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
         img = np.ascontiguousarray(img)
 
-        dmap = None ## only valid for online operation
         # cv2.imwrite(path + '.letterbox.jpg', 255 * img.transpose((1, 2, 0))[:, :, ::-1])  # save letterbox image
-        return path, img, img0, dmap, self.cap
+        return path, img, img0, self.cap
 
     def new_video(self, path):
         self.frame = 0
@@ -200,50 +196,20 @@ class LoadStreams:  # multiple IP or RTSP cameras
 
         n = len(sources)
         self.imgs = [None] * n
-        self.dmap = [None] * n
         self.sources = sources
-
         for i, s in enumerate(sources):
             # Start the thread to read frames from the video stream
-            #print('%g/%g: %s... ' % (i + 1, n, s), end='')
-
-            ## Start rgb stream
-            dist = '../OpenNI/OpenNI_2.3.0.63/Linux/OpenNI-Linux-x64-2.3.0.63/Redist'
-            openni2.initialize(dist)
-            cap = openni2.is_initialized()
-            dev = openni2.Device.open_any()
-            rgb_stream = dev.create_color_stream()
-            rgb_stream.set_video_mode(c_api.OniVideoMode(pixelFormat=c_api.OniPixelFormat.ONI_PIXEL_FORMAT_RGB888, resolutionX=640,resolutionY=480, fps=30))
-            rgb_stream.start()
-
-            ## Start depth stream
-            depth_stream = dev.create_depth_stream()  # Create the stream (depth)
-            depth_stream.set_mirroring_enabled(False)  # Disable mirroring
-            depth_stream.set_video_mode(c_api.OniVideoMode(pixelFormat=c_api.OniPixelFormat.ONI_PIXEL_FORMAT_DEPTH_1_MM, resolutionX=640,resolutionY=480, fps=30))
-            depth_stream.start()  # Start the stream
-
-            ## Synchronize the streams
-            dev.set_depth_color_sync_enabled(True)
-
-            ## Align DEPTH2RGB (depth wrapped to match rgb stream)
-            dev.set_image_registration_mode(openni2.IMAGE_REGISTRATION_DEPTH_TO_COLOR)
-
-            w = rgb_stream.get_video_mode().resolutionX
-            h = rgb_stream.get_video_mode().resolutionY
-            fps = rgb_stream.get_video_mode().fps % 100
-
-            ## color stream
-            bgr = np.fromstring(rgb_stream.read_frame().get_buffer_as_uint8(), dtype=np.uint8).reshape(h, w, 3)
-            self.imgs[i] = bgr
-
-            ## depth map
-            dmap = np.fromstring(depth_stream.read_frame().get_buffer_as_uint16(), dtype=np.uint16).reshape(h,w)
-            self.dmap[i] = dmap
-
-            thread = Thread(target=self.update, args=([i, cap, rgb_stream, depth_stream]), daemon=True)
-            #print(' success (%gx%g at %.2f FPS).' % (w, h, fps))
+            print('%g/%g: %s... ' % (i + 1, n, s), end='')
+            cap = cv2.VideoCapture(0 if s == '0' else s)
+            assert cap.isOpened(), 'Failed to open %s' % s
+            w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            fps = cap.get(cv2.CAP_PROP_FPS) % 100
+            _, self.imgs[i] = cap.read()  # guarantee first frame
+            thread = Thread(target=self.update, args=([i, cap]), daemon=True)
+            print(' success (%gx%g at %.2f FPS).' % (w, h, fps))
             thread.start()
-        #print('')  # newline
+        print('')  # newline
 
         # check for common shapes
         s = np.stack([letterbox(x, new_shape=self.img_size)[0].shape for x in self.imgs], 0)  # inference shapes
@@ -251,20 +217,15 @@ class LoadStreams:  # multiple IP or RTSP cameras
         if not self.rect:
             print('WARNING: Different stream shapes detected. For optimal performance supply similarly-shaped streams.')
 
-    def update(self, index, cap, rgb_stream, depth_stream):
+    def update(self, index, cap):
         # Read next stream frame in a daemon thread
         n = 0
-        w = rgb_stream.get_video_mode().resolutionX
-        h = rgb_stream.get_video_mode().resolutionY
-        while cap:
+        while cap.isOpened():
             n += 1
-            bgr = np.fromstring(rgb_stream.read_frame().get_buffer_as_uint8(), dtype=np.uint8).reshape(h, w, 3)
-            dmap = np.fromstring(depth_stream.read_frame().get_buffer_as_uint16(), dtype=np.uint16).reshape(h, w)
+            # _, self.imgs[index] = cap.read()
+            cap.grab()
             if n == 4:  # read every 4th frame
-                bgr = np.fromstring(rgb_stream.read_frame().get_buffer_as_uint8(), dtype=np.uint8).reshape(h, w, 3)
-                self.imgs[index] = bgr
-                dmap = np.fromstring(depth_stream.read_frame().get_buffer_as_uint16(), dtype=np.uint16).reshape(h, w)
-                self.dmap[index] = dmap
+                _, self.imgs[index] = cap.retrieve()
                 n = 0
             time.sleep(0.01)  # wait time
 
@@ -275,7 +236,6 @@ class LoadStreams:  # multiple IP or RTSP cameras
     def __next__(self):
         self.count += 1
         img0 = self.imgs.copy()
-        dmap0 = self.dmap.copy()
         if cv2.waitKey(1) == ord('q'):  # q to quit
             cv2.destroyAllWindows()
             raise StopIteration
@@ -290,7 +250,7 @@ class LoadStreams:  # multiple IP or RTSP cameras
         img = img[:, :, :, ::-1].transpose(0, 3, 1, 2)  # BGR to RGB, to bsx3x416x416
         img = np.ascontiguousarray(img)
 
-        return self.sources, img, img0, dmap0, None
+        return self.sources, img, img0, None
 
     def __len__(self):
         return 0  # 1E12 frames = 32 streams at 30 FPS for 30 years
