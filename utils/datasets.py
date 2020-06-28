@@ -239,7 +239,6 @@ class LoadStreams:  # multiple IP or RTSP cameras
             ## depth map
             dmap = np.fromstring(depth_stream.read_frame().get_buffer_as_uint16(), dtype=np.uint16).reshape(h,w)
             self.dmap[i] = dmap
-
             thread = Thread(target=self.update, args=([i, cap, rgb_stream, depth_stream]), daemon=True)
             #print(' success (%gx%g at %.2f FPS).' % (w, h, fps))
             thread.start()
@@ -275,13 +274,16 @@ class LoadStreams:  # multiple IP or RTSP cameras
     def __next__(self):
         self.count += 1
         img0 = self.imgs.copy()
+
         dmap0 = self.dmap.copy()
+
         if cv2.waitKey(1) == ord('q'):  # q to quit
             cv2.destroyAllWindows()
             raise StopIteration
 
         # Letterbox
         img = [letterbox(x, new_shape=self.img_size, auto=self.rect)[0] for x in img0]
+        #dmap = [letterbox(x, new_shape=self.img_size, auto=self.rect)[0] for x in dmap0]
 
         # Stack
         img = np.stack(img, 0)
@@ -290,7 +292,9 @@ class LoadStreams:  # multiple IP or RTSP cameras
         img = img[:, :, :, ::-1].transpose(0, 3, 1, 2)  # BGR to RGB, to bsx3x416x416
         img = np.ascontiguousarray(img)
 
-        return self.sources, img, img0, dmap0, None
+        dmap = np.array(dmap0[0])
+
+        return self.sources, img, img0, dmap, None
 
     def __len__(self):
         return 0  # 1E12 frames = 32 streams at 30 FPS for 30 years

@@ -7,7 +7,7 @@ from V_SLAM_fcn.bag_of_words_fcn import BoVW_comparison
 ## Point clouds
 from V_SLAM_fcn.pcl_functions import cloud_object_center
 
-def sample(codebook_match, online):
+def sample(codebook_match, online, timestamps, poses):
     ## Correct the false ids
     unique_ids = {}
     corrected_poses = {}
@@ -29,8 +29,8 @@ def sample(codebook_match, online):
 
 def serial_landmarks(corrected_poses, corrected_timestamps):
     ## Arange observations timewise
-    aranged_timestamps = {}
-    aranged_poses = {}
+    arranged_timestamps = {}
+    arranged_poses = {}
 
     for object in corrected_timestamps:
         for x in range(len(corrected_timestamps[object])):

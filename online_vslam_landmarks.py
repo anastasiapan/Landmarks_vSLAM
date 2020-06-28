@@ -18,8 +18,8 @@ import numpy as np
 from V_SLAM_fcn.visual_tracker_fcn import *
 
 ## Load codebook and re-weighted histograms
-codebook =  np.load('./V_SLAM_fcn/b326_codebook/Visual_Words_500H_b326_80.npy') ## codebook
-re_hist = np.load('./V_SLAM_fcn/b326_codebook/reweight_histogram_500H_b326_80.npy', allow_pickle=True).reshape(1, 1) ## dctionary histogram
+codebook =  np.load('./V_SLAM_fcn/b329_codebook/Visual_Words_500H_b329_80_50exp.npy') ## codebook
+re_hist = np.load('./V_SLAM_fcn/b329_codebook/reweight_histogram_500H_b329_80_50exp.npy', allow_pickle=True).reshape(1, 1) ## dctionary histogram
 re_hist = re_hist[0,0]
 
 width = 640
@@ -34,9 +34,9 @@ match_thres = 5
 parameters = {"hess_th": 500, ## Hessian threshold for SURF features
               "lowe_ratio": 0.5, ## Lowe ratio for brute force matching
               "match_thres": 5, ## Matching threshold for the tracker
-              "exp_pct": 0.25} ## Percentage for bounding box expansion
+              "exp_pct": 0.5} ## Percentage for bounding box expansion
 
-online_flag = False ## Run online or from a video
+online_flag = True ## Run online or from a video
 #----------------------------------------------------------------------------------#
 
 ## ROS ----------------------------------------------------------------------------#
@@ -93,7 +93,7 @@ def detect(save_img=False):
     names = model.module.names if hasattr(model, 'module') else model.names
     colors = [[random.randint(0, 255) for _ in range(3)] for _ in range(len(names))]
 
-    fps = 0.0
+    fps_disp = 0.0
 
     # Run inference
     t0 = time.time()
@@ -110,7 +110,7 @@ def detect(save_img=False):
 
     ## Main loop
     for path, img, im0s, d_map, vid_cap in dataset:
-        fps_start = time.time()
+        print(img.shape)
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
@@ -120,6 +120,7 @@ def detect(save_img=False):
         if img.ndimension() == 3:
             img = img.unsqueeze(0)
 
+        print(img.shape)
         ## Online operation data
         online_data = {'flag': online_flag,
                        'timestamp': 0 if not online_flag else rospy.Time.now(),
@@ -210,25 +211,37 @@ def detect(save_img=False):
             else:  ## no objects in frame
                 if not new_scene:
                     ## Sample results
-                    sampled_poses, sampled_tstamps = sample(codebook_match, online_flag)
+                    sampled_poses, sampled_tstamps = sample(codebook_match, online_flag, timestamps, poses)
 
                     if online_flag: ## If running online publish landmarks list
                         arranged_poses, arranged_tstamps = serial_landmarks(sampled_poses, sampled_tstamps)
 
                         ## Publish landmarks
-                        for ts in aranged_timestamps:
+                        for ts in arranged_tstamps:
                             lmk_list = landmark_pub(arranged_poses[ts], arranged_tstamps[ts], rospy.Time.from_sec(int(ts) / 1e9))
                             lmk_pub.publish(lmk_list)
 
                 new_scene = True ## sampling finished - new_scene
 
-        fps = (fps + (1. / (torch_utils.time_synchronized() - t1))) / 2
-        img2 = cv2.putText(im_rgb, "FPS: {:.2f}".format(fps), (0, 30),
+        fps_disp = (fps_disp + (1. / (torch_utils.time_synchronized() - t1))) / 2
+        img2 = cv2.putText(im_rgb, "FPS: {:.2f}".format(fps_disp), (0, 30),
                           cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 0, 255), 2)
         # Stream results
         if view_img or save_img:
             cv2.imshow(p, img2)
             if cv2.waitKey(1) == ord('q'):  # q to quit
+                ## Sample results before exiting
+                sampled_poses, sampled_tstamps = sample(codebook_match, online_flag, timestamps, poses)
+
+                if online_flag:  ## If running online publish landmarks list
+                    arranged_poses, arranged_tstamps = serial_landmarks(sampled_poses, sampled_tstamps)
+
+                    ## Publish landmarks
+                    for ts in aranged_timestamps:
+                        lmk_list = landmark_pub(arranged_poses[ts], arranged_tstamps[ts],
+                                                rospy.Time.from_sec(int(ts) / 1e9))
+                        lmk_pub.publish(lmk_list)
+
                 raise StopIteration
 
         # Save results (image with detections)
@@ -248,6 +261,18 @@ def detect(save_img=False):
                 vid_writer.write(img2)
 
     if save_txt or save_img:
+        ## Sample results before exiting
+        sampled_poses, sampled_tstamps = sample(codebook_match, online_flag, timestamps, poses)
+
+        if online_flag:  ## If running online publish landmarks list
+            arranged_poses, arranged_tstamps = serial_landmarks(sampled_poses, sampled_tstamps)
+
+            ## Publish landmarks
+            for ts in aranged_timestamps:
+                lmk_list = landmark_pub(arranged_poses[ts], arranged_tstamps[ts],
+                                        rospy.Time.from_sec(int(ts) / 1e9))
+                lmk_pub.publish(lmk_list)
+
         print('Results saved to %s' % os.getcwd() + os.sep + out)
         if platform == 'darwin':  # MacOS
             os.system('open ' + save_path)
@@ -257,11 +282,11 @@ def detect(save_img=False):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--weights', type=str, default='weights/best_yolov5s_results.pt', help='model.pt path')
-    parser.add_argument('--source', type=str, default='inference/videos/vid.avi', help='source')  # file/folder, 0 for webcam
+    parser.add_argument('--weights', type=str, default='weights/best_yolov5x_results.pt', help='model.pt path')
+    parser.add_argument('--source', type=str, default='0', help='source')  # file/folder, 0 for webcam
     parser.add_argument('--output', type=str, default='inference/output/', help='output folder')  # output folder
     parser.add_argument('--img-size', type=int, default=416, help='inference size (pixels)')
-    parser.add_argument('--conf-thres', type=float, default=0.4, help='object confidence threshold')
+    parser.add_argument('--conf-thres', type=float, default=0.9, help='object confidence threshold')
     parser.add_argument('--iou-thres', type=float, default=0.5, help='IOU threshold for NMS')
     parser.add_argument('--fourcc', type=str, default='mp4v', help='output video codec (verify ffmpeg support)')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
