@@ -110,17 +110,17 @@ def detect(save_img=False):
 
     ## Main loop
     for path, img, im0s, d_map, vid_cap in dataset:
-        print(img.shape)
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
 
         dmap = d_map
+        d4d = np.uint8(dmap.astype(float) * 255 / 2 ** 12 - 1)  # Correct the range. Depth images are 12bits
+        d4d = 255 - cv2.cvtColor(d4d, cv2.COLOR_GRAY2RGB)
 
         if img.ndimension() == 3:
             img = img.unsqueeze(0)
 
-        print(img.shape)
         ## Online operation data
         online_data = {'flag': online_flag,
                        'timestamp': 0 if not online_flag else rospy.Time.now(),
@@ -184,6 +184,9 @@ def detect(save_img=False):
                     if online_flag:
                         obj_cent = [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2]  ## [x y] center pixel of the area the object is located
                         ## Optimal operation range: 0.6-5m
+                        print(dmap[int(obj_cent[1]), int(obj_cent[0])])
+                        im_rgb = cv2.circle(im_rgb, (int(obj_cent[0]), int(obj_cent[1])), 5, (0,255,0), -1)
+                        d4d = cv2.circle(d4d, (int(obj_cent[0]), int(obj_cent[1])), 5, (0,0,255), -1)
                         if dmap[int(obj_cent[1]), int(obj_cent[0])] < 600 or dmap[int(obj_cent[1]), int(obj_cent[0])] > 5000:
                             objects = torch.cat([objects[0:i], objects[i+1:]])
 
@@ -228,7 +231,8 @@ def detect(save_img=False):
                           cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 0, 255), 2)
         # Stream results
         if view_img or save_img:
-            cv2.imshow(p, img2)
+            display = np.hstack((d4d, img2))
+            cv2.imshow('depth || rgb', display)
             if cv2.waitKey(1) == ord('q'):  # q to quit
                 ## Sample results before exiting
                 sampled_poses, sampled_tstamps = sample(codebook_match, online_flag, timestamps, poses)
@@ -237,7 +241,7 @@ def detect(save_img=False):
                     arranged_poses, arranged_tstamps = serial_landmarks(sampled_poses, sampled_tstamps)
 
                     ## Publish landmarks
-                    for ts in aranged_timestamps:
+                    for ts in arranged_tstamps:
                         lmk_list = landmark_pub(arranged_poses[ts], arranged_tstamps[ts],
                                                 rospy.Time.from_sec(int(ts) / 1e9))
                         lmk_pub.publish(lmk_list)

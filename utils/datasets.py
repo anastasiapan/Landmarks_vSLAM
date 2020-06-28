@@ -200,7 +200,7 @@ class LoadStreams:  # multiple IP or RTSP cameras
 
         n = len(sources)
         self.imgs = [None] * n
-        self.dmap = [None] * n
+        self.dmap = np.empty((480,640))
         self.sources = sources
 
         for i, s in enumerate(sources):
@@ -211,35 +211,35 @@ class LoadStreams:  # multiple IP or RTSP cameras
             dist = '../OpenNI/OpenNI_2.3.0.63/Linux/OpenNI-Linux-x64-2.3.0.63/Redist'
             openni2.initialize(dist)
             cap = openni2.is_initialized()
-            dev = openni2.Device.open_any()
-            rgb_stream = dev.create_color_stream()
-            rgb_stream.set_video_mode(c_api.OniVideoMode(pixelFormat=c_api.OniPixelFormat.ONI_PIXEL_FORMAT_RGB888, resolutionX=640,resolutionY=480, fps=30))
-            rgb_stream.start()
+            self.dev = openni2.Device.open_any()
+            self.rgb_stream = self.dev.create_color_stream()
+            self.rgb_stream.set_video_mode(c_api.OniVideoMode(pixelFormat=c_api.OniPixelFormat.ONI_PIXEL_FORMAT_RGB888, resolutionX=640,resolutionY=480, fps=30))
+            self.rgb_stream.start()
 
             ## Start depth stream
-            depth_stream = dev.create_depth_stream()  # Create the stream (depth)
-            depth_stream.set_mirroring_enabled(False)  # Disable mirroring
-            depth_stream.set_video_mode(c_api.OniVideoMode(pixelFormat=c_api.OniPixelFormat.ONI_PIXEL_FORMAT_DEPTH_1_MM, resolutionX=640,resolutionY=480, fps=30))
-            depth_stream.start()  # Start the stream
+            self.depth_stream = self.dev.create_depth_stream()  # Create the stream (depth)
+            self.depth_stream.set_mirroring_enabled(False)  # Disable mirroring
+            self.depth_stream.set_video_mode(c_api.OniVideoMode(pixelFormat=c_api.OniPixelFormat.ONI_PIXEL_FORMAT_DEPTH_1_MM, resolutionX=640,resolutionY=480, fps=30))
+            self.depth_stream.start()  # Start the stream
 
             ## Synchronize the streams
-            dev.set_depth_color_sync_enabled(True)
+            self.dev.set_depth_color_sync_enabled(True)
 
             ## Align DEPTH2RGB (depth wrapped to match rgb stream)
-            dev.set_image_registration_mode(openni2.IMAGE_REGISTRATION_DEPTH_TO_COLOR)
+            self.dev.set_image_registration_mode(openni2.IMAGE_REGISTRATION_DEPTH_TO_COLOR)
 
-            w = rgb_stream.get_video_mode().resolutionX
-            h = rgb_stream.get_video_mode().resolutionY
-            fps = rgb_stream.get_video_mode().fps % 100
+            w = self.rgb_stream.get_video_mode().resolutionX
+            h = self.rgb_stream.get_video_mode().resolutionY
+            fps = self.rgb_stream.get_video_mode().fps % 100
 
             ## color stream
-            bgr = np.fromstring(rgb_stream.read_frame().get_buffer_as_uint8(), dtype=np.uint8).reshape(h, w, 3)
+            bgr = np.fromstring(self.rgb_stream.read_frame().get_buffer_as_uint8(), dtype=np.uint8).reshape(h, w, 3)
             self.imgs[i] = bgr
 
             ## depth map
-            dmap = np.fromstring(depth_stream.read_frame().get_buffer_as_uint16(), dtype=np.uint16).reshape(h,w)
-            self.dmap[i] = dmap
-            thread = Thread(target=self.update, args=([i, cap, rgb_stream, depth_stream]), daemon=True)
+            dmap = np.fromstring(self.depth_stream.read_frame().get_buffer_as_uint16(), dtype=np.uint16).reshape(h,w)
+            self.dmap = dmap
+            thread = Thread(target=self.update, args=([i]), daemon=True)
             #print(' success (%gx%g at %.2f FPS).' % (w, h, fps))
             thread.start()
         #print('')  # newline
@@ -250,20 +250,20 @@ class LoadStreams:  # multiple IP or RTSP cameras
         if not self.rect:
             print('WARNING: Different stream shapes detected. For optimal performance supply similarly-shaped streams.')
 
-    def update(self, index, cap, rgb_stream, depth_stream):
+    def update(self, index):
         # Read next stream frame in a daemon thread
         n = 0
-        w = rgb_stream.get_video_mode().resolutionX
-        h = rgb_stream.get_video_mode().resolutionY
-        while cap:
+        w = self.rgb_stream.get_video_mode().resolutionX
+        h = self.rgb_stream.get_video_mode().resolutionY
+        while True:
             n += 1
-            bgr = np.fromstring(rgb_stream.read_frame().get_buffer_as_uint8(), dtype=np.uint8).reshape(h, w, 3)
-            dmap = np.fromstring(depth_stream.read_frame().get_buffer_as_uint16(), dtype=np.uint16).reshape(h, w)
+            bgr = np.fromstring(self.rgb_stream.read_frame().get_buffer_as_uint8(), dtype=np.uint8).reshape(h, w, 3)
+            dmap = np.fromstring(self.depth_stream.read_frame().get_buffer_as_uint16(), dtype=np.uint16).reshape(h, w)
             if n == 4:  # read every 4th frame
-                bgr = np.fromstring(rgb_stream.read_frame().get_buffer_as_uint8(), dtype=np.uint8).reshape(h, w, 3)
+                bgr = np.fromstring(self.rgb_stream.read_frame().get_buffer_as_uint8(), dtype=np.uint8).reshape(h, w, 3)
                 self.imgs[index] = bgr
-                dmap = np.fromstring(depth_stream.read_frame().get_buffer_as_uint16(), dtype=np.uint16).reshape(h, w)
-                self.dmap[index] = dmap
+                dmap = np.fromstring(self.depth_stream.read_frame().get_buffer_as_uint16(), dtype=np.uint16).reshape(h, w)
+                self.dmap = dmap
                 n = 0
             time.sleep(0.01)  # wait time
 
@@ -275,7 +275,7 @@ class LoadStreams:  # multiple IP or RTSP cameras
         self.count += 1
         img0 = self.imgs.copy()
 
-        dmap0 = self.dmap.copy()
+        #dmap0 = self.dmap.copy()
 
         if cv2.waitKey(1) == ord('q'):  # q to quit
             cv2.destroyAllWindows()
@@ -287,14 +287,15 @@ class LoadStreams:  # multiple IP or RTSP cameras
 
         # Stack
         img = np.stack(img, 0)
+        #dmap = np.stack(dmap, 0)
 
         # Convert
         img = img[:, :, :, ::-1].transpose(0, 3, 1, 2)  # BGR to RGB, to bsx3x416x416
         img = np.ascontiguousarray(img)
 
-        dmap = np.array(dmap0[0])
+        #dmap = np.ascontiguousarray(dmap)
 
-        return self.sources, img, img0, dmap, None
+        return self.sources, img, img0, self.dmap, None
 
     def __len__(self):
         return 0  # 1E12 frames = 32 streams at 30 FPS for 30 years

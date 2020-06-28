@@ -28,7 +28,7 @@ def sample(codebook_match, online, timestamps, poses):
     return corrected_poses, corrected_timestamps
 
 def serial_landmarks(corrected_poses, corrected_timestamps):
-    ## Arange observations timewise
+    ## Arange observatiaranged_timestampsons timewise
     arranged_timestamps = {}
     arranged_poses = {}
 
