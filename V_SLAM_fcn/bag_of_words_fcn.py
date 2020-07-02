@@ -49,7 +49,7 @@ class BoVW_comparison:
         org = (int(x_txt + 10), int(y_txt + 50))  # org - text starting point
         disp_match = round(self.cos_pct)
         txt = '{} {}'.format(self.object, disp_match)
-        self.disp = cv2.putText(self.disp, txt, org, cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 20, 20), 2, cv2.LINE_AA)
+        self.disp = cv2.putText(self.disp, txt, org, cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,0), 2, cv2.LINE_AA)
 
         return self
 
@@ -63,6 +63,10 @@ class BoVW_comparison:
         self.img = frame
         self.disp = disp
 
-        BoVW_comparison.img_hist(self) ## Create image histogram
-        BoVW_comparison.find_match(self) ## Find best match
-        BoVW_comparison.draw_ids(self, x_txt, y_txt) ## Draw ids on frame
+        if des is not None:
+            BoVW_comparison.img_hist(self) ## Create image histogram
+            BoVW_comparison.find_match(self) ## Find best match
+            BoVW_comparison.draw_ids(self, x_txt, y_txt) ## Draw ids on frame
+        else:
+            self.hist = 0
+            self.cos_pct = 0

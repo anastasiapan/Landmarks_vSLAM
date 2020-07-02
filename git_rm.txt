@@ -1,2 +1,6 @@
-git rm -r --cached V_SLAM_fcn/b326_codebook/
-git rm -r --cached V_SLAM_fcn/b329_codebook/
+git rm -r --cached V_SLAM_fcn/codebook/
+git rm -r --cached detections/
+git rm -r --cached BoVW_keyframes/326_codebook_patches/
+git rm -r --cached BoVW_keyframes/329_keyframes/
+git rm -r --cached BoVW_keyframes/vocabulary_images/
+git rm -r --cached BoVW_keyframes/vocabulary_images.avi

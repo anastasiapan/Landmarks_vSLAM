@@ -209,36 +209,47 @@ class LoadStreams:  # multiple IP or RTSP cameras
 
             ## Start rgb stream
             dist = '../OpenNI/OpenNI_2.3.0.63/Linux/OpenNI-Linux-x64-2.3.0.63/Redist'
-            openni2.initialize(dist)
-            cap = openni2.is_initialized()
-            self.dev = openni2.Device.open_any()
-            self.rgb_stream = self.dev.create_color_stream()
-            self.rgb_stream.set_video_mode(c_api.OniVideoMode(pixelFormat=c_api.OniPixelFormat.ONI_PIXEL_FORMAT_RGB888, resolutionX=640,resolutionY=480, fps=30))
-            self.rgb_stream.start()
+            openni2.initialize(dist)  # Initialize openni device
+            dev = openni2.Device.open_any()  # Register the device
 
-            ## Start depth stream
-            self.depth_stream = self.dev.create_depth_stream()  # Create the stream (depth)
-            self.depth_stream.set_mirroring_enabled(False)  # Disable mirroring
-            self.depth_stream.set_video_mode(c_api.OniVideoMode(pixelFormat=c_api.OniPixelFormat.ONI_PIXEL_FORMAT_DEPTH_1_MM, resolutionX=640,resolutionY=480, fps=30))
-            self.depth_stream.start()  # Start the stream
+            ## Create rgb stream
+            rgb_stream = dev.create_color_stream()  # Create the stream (rgb)
+            rgb_stream.set_mirroring_enabled(False)  # Disable mirroring
+            # print('The rgb video mode is', rgb_stream.get_video_mode()) # Checks rgb video configuration
+            rgb_stream.set_video_mode(
+                c_api.OniVideoMode(pixelFormat=c_api.OniPixelFormat.ONI_PIXEL_FORMAT_RGB888, resolutionX=640,
+                                   resolutionY=480, fps=30))
+            rgb_stream.start()  # Start the stream
+
+            ## Create depth stream
+            depth_stream = dev.create_depth_stream()  # Create the stream (depth)
+            depth_stream.set_mirroring_enabled(False)  # Disable mirroring
+            depth_stream.set_video_mode(
+                c_api.OniVideoMode(pixelFormat=c_api.OniPixelFormat.ONI_PIXEL_FORMAT_DEPTH_1_MM, resolutionX=640,
+                                   resolutionY=480, fps=30))
+            depth_stream.start()  # Start the stream
 
             ## Synchronize the streams
-            self.dev.set_depth_color_sync_enabled(True)
+            dev.set_depth_color_sync_enabled(True)
 
-            ## Align DEPTH2RGB (depth wrapped to match rgb stream)
-            self.dev.set_image_registration_mode(openni2.IMAGE_REGISTRATION_DEPTH_TO_COLOR)
+            ## IMPORTANT: ALIGN DEPTH2RGB (depth wrapped to match rgb stream)
+            dev.set_image_registration_mode(openni2.IMAGE_REGISTRATION_DEPTH_TO_COLOR)
 
-            w = self.rgb_stream.get_video_mode().resolutionX
-            h = self.rgb_stream.get_video_mode().resolutionY
-            fps = self.rgb_stream.get_video_mode().fps % 100
+            w = rgb_stream.get_video_mode().resolutionX
+            h = rgb_stream.get_video_mode().resolutionY
+            fps = rgb_stream.get_video_mode().fps % 100
 
             ## color stream
-            bgr = np.fromstring(self.rgb_stream.read_frame().get_buffer_as_uint8(), dtype=np.uint8).reshape(h, w, 3)
+            bgr = np.fromstring(rgb_stream.read_frame().get_buffer_as_uint8(), dtype=np.uint8).reshape(h, w, 3)
             self.imgs[i] = bgr
 
             ## depth map
-            dmap = np.fromstring(self.depth_stream.read_frame().get_buffer_as_uint16(), dtype=np.uint16).reshape(h,w)
+            dmap = np.fromstring(depth_stream.read_frame().get_buffer_as_uint16(), dtype=np.uint16).reshape(h,w)
             self.dmap = dmap
+
+            self.rgb_stream = rgb_stream
+            self.depth_stream = depth_stream
+
             thread = Thread(target=self.update, args=([i]), daemon=True)
             #print(' success (%gx%g at %.2f FPS).' % (w, h, fps))
             thread.start()

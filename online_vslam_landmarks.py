@@ -18,25 +18,20 @@ import numpy as np
 from V_SLAM_fcn.visual_tracker_fcn import *
 
 ## Load codebook and re-weighted histograms
-codebook =  np.load('./V_SLAM_fcn/b329_codebook/Visual_Words_500H_b329_80_50exp.npy') ## codebook
-re_hist = np.load('./V_SLAM_fcn/b329_codebook/reweight_histogram_500H_b329_80_50exp.npy', allow_pickle=True).reshape(1, 1) ## dctionary histogram
+codebook =  np.load('./V_SLAM_fcn/codebook/Visual_Words100.npy') ## codebook
+re_hist = np.load('./V_SLAM_fcn/codebook/tfidf_histograms_b329_exp25.npy', allow_pickle=True).reshape(1, 1) ## dctionary histogram
 re_hist = re_hist[0,0]
 
 width = 640
 height = 480
 
-exp_pct = 0.25
-
-### Matching threshold
-match_thres = 5
-
 ## Parameters
 parameters = {"hess_th": 500, ## Hessian threshold for SURF features
-              "lowe_ratio": 0.5, ## Lowe ratio for brute force matching
+              "lowe_ratio": 0.7, ## Lowe ratio for brute force matching
               "match_thres": 5, ## Matching threshold for the tracker
-              "exp_pct": 0.5} ## Percentage for bounding box expansion
+              "exp_pct": 0.4} ## Percentage for bounding box expansion
 
-online_flag = True ## Run online or from a video
+online_flag = False ## Run online or from a video
 #----------------------------------------------------------------------------------#
 
 ## ROS ----------------------------------------------------------------------------#
@@ -52,6 +47,14 @@ if online_flag:
 #----------------------------------------------------------------------------------#
 
 def detect(save_img=False):
+    ## Writing output video
+    width = 640
+    height = 480
+    fps = 30
+    codec = cv2.VideoWriter_fourcc(*'XVID')
+    output_path = './DTU100_hess500_fullBbox.avi'
+    out_vid_write = cv2.VideoWriter(output_path, codec, fps, (width, height))
+
     out, source, weights, view_img, save_txt, imgsz = \
         opt.output, opt.source, opt.weights, opt.view_img, opt.save_txt, opt.img_size
     webcam = source == '0' or source.startswith('rtsp') or source.startswith('http') or source.endswith('.txt')
@@ -106,7 +109,8 @@ def detect(save_img=False):
     old_objects = {}
     old_num = 0
     codebook_match = {}
-    text = " "
+    txt = " "
+    id_pct = 0
 
     ## Main loop
     for path, img, im0s, d_map, vid_cap in dataset:
@@ -115,8 +119,9 @@ def detect(save_img=False):
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
 
         dmap = d_map
-        d4d = np.uint8(dmap.astype(float) * 255 / 2 ** 12 - 1)  # Correct the range. Depth images are 12bits
-        d4d = 255 - cv2.cvtColor(d4d, cv2.COLOR_GRAY2RGB)
+        if online_flag and dmap is not None:
+            d4d = np.uint8(dmap.astype(float) * 255 / 2 ** 12 - 1)  # Correct the range. Depth images are 12bits
+            d4d = 255 - cv2.cvtColor(d4d, cv2.COLOR_GRAY2RGB)
 
         if img.ndimension() == 3:
             img = img.unsqueeze(0)
@@ -169,7 +174,8 @@ def detect(save_img=False):
 
                     if save_img or view_img:  # Add bbox to image
                         label = '%s %.2f' % (names[int(cls)], conf)
-                        plot_one_box(xyxy, im_rgb, label=label, color=colors[int(cls)], line_thickness=3)
+                        #plot_one_box(xyxy, im_rgb, label=label, color=colors[int(cls)], line_thickness=3)
+                        plot_one_box(xyxy, im_rgb, label=label, color=(0,255,0), line_thickness=3)
 
             ## Check if any detections happen
             objects = pred[0]
@@ -184,9 +190,9 @@ def detect(save_img=False):
                     if online_flag:
                         obj_cent = [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2]  ## [x y] center pixel of the area the object is located
                         ## Optimal operation range: 0.6-5m
-                        print(dmap[int(obj_cent[1]), int(obj_cent[0])])
+                        #print(dmap[int(obj_cent[1]), int(obj_cent[0])])
                         im_rgb = cv2.circle(im_rgb, (int(obj_cent[0]), int(obj_cent[1])), 5, (0,255,0), -1)
-                        d4d = cv2.circle(d4d, (int(obj_cent[0]), int(obj_cent[1])), 5, (0,0,255), -1)
+                        if online_flag: d4d = cv2.circle(d4d, (int(obj_cent[0]), int(obj_cent[1])), 5, (0,0,255), -1)
                         if dmap[int(obj_cent[1]), int(obj_cent[0])] < 600 or dmap[int(obj_cent[1]), int(obj_cent[0])] > 5000:
                             objects = torch.cat([objects[0:i], objects[i+1:]])
 
@@ -214,9 +220,10 @@ def detect(save_img=False):
             else:  ## no objects in frame
                 if not new_scene:
                     ## Sample results
-                    sampled_poses, sampled_tstamps = sample(codebook_match, online_flag, timestamps, poses)
+                    sampled_poses, sampled_tstamps, id_pct, txt = sample(codebook_match, online_flag, timestamps, poses)
 
-                    if online_flag: ## If running online publish landmarks list
+
+                    if online_flag and id_pct>70: ## If running online publish landmarks list
                         arranged_poses, arranged_tstamps = serial_landmarks(sampled_poses, sampled_tstamps)
 
                         ## Publish landmarks
@@ -226,18 +233,24 @@ def detect(save_img=False):
 
                 new_scene = True ## sampling finished - new_scene
 
+        img2 = cv2.putText(im_rgb, txt, (0, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
+
         fps_disp = (fps_disp + (1. / (torch_utils.time_synchronized() - t1))) / 2
-        img2 = cv2.putText(im_rgb, "FPS: {:.2f}".format(fps_disp), (0, 30),
+        img2 = cv2.putText(img2, "FPS: {:.2f}".format(fps_disp), (0, 30),
                           cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 0, 255), 2)
         # Stream results
         if view_img or save_img:
-            display = np.hstack((d4d, img2))
-            cv2.imshow('depth || rgb', display)
+            if online_flag:
+                display = np.hstack((d4d, img2))
+                cv2.imshow('depth || rgb', display)
+                out_vid_write.write(img2)
+            else:
+                cv2.imshow('output', img2)
             if cv2.waitKey(1) == ord('q'):  # q to quit
                 ## Sample results before exiting
-                sampled_poses, sampled_tstamps = sample(codebook_match, online_flag, timestamps, poses)
+                sampled_poses, sampled_tstamps, id_pct, txt = sample(codebook_match, online_flag, timestamps, poses)
 
-                if online_flag:  ## If running online publish landmarks list
+                if online_flag and id_pct > 70:  ## If running online publish landmarks list
                     arranged_poses, arranged_tstamps = serial_landmarks(sampled_poses, sampled_tstamps)
 
                     ## Publish landmarks
@@ -251,7 +264,7 @@ def detect(save_img=False):
         # Save results (image with detections)
         if save_img:
             if dataset.mode == 'images':
-                cv2.imwrite(save_path, img2)
+                cv2.imwrite(save_path, display)
             else:
                 if vid_path != save_path:  # new video
                     vid_path = save_path
@@ -262,13 +275,14 @@ def detect(save_img=False):
                     w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                     h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                     vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*opt.fourcc), fps, (w, h))
-                vid_writer.write(img2)
+                #out = display if online_flag else img2
+                #vid_writer.write(display)
 
     if save_txt or save_img:
         ## Sample results before exiting
-        sampled_poses, sampled_tstamps = sample(codebook_match, online_flag, timestamps, poses)
+        sampled_poses, sampled_tstamps, id_pct, txt = sample(codebook_match, online_flag, timestamps, poses)
 
-        if online_flag:  ## If running online publish landmarks list
+        if online_flag and id_pct>70:  ## If running online publish landmarks list
             arranged_poses, arranged_tstamps = serial_landmarks(sampled_poses, sampled_tstamps)
 
             ## Publish landmarks
@@ -286,11 +300,11 @@ def detect(save_img=False):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--weights', type=str, default='weights/best_yolov5x_results.pt', help='model.pt path')
-    parser.add_argument('--source', type=str, default='0', help='source')  # file/folder, 0 for webcam
+    parser.add_argument('--weights', type=str, default='weights/best_yolov5x_custom.pt', help='model.pt path')
+    parser.add_argument('--source', type=str, default='inference/videos/329_test_video_01.avi', help='source')  # file/folder, 0 for webcam
     parser.add_argument('--output', type=str, default='inference/output/', help='output folder')  # output folder
     parser.add_argument('--img-size', type=int, default=416, help='inference size (pixels)')
-    parser.add_argument('--conf-thres', type=float, default=0.9, help='object confidence threshold')
+    parser.add_argument('--conf-thres', type=float, default=0.8, help='object confidence threshold')
     parser.add_argument('--iou-thres', type=float, default=0.5, help='IOU threshold for NMS')
     parser.add_argument('--fourcc', type=str, default='mp4v', help='output video codec (verify ffmpeg support)')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')

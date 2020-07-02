@@ -9,23 +9,32 @@ from V_SLAM_fcn.pcl_functions import cloud_object_center
 
 def sample(codebook_match, online, timestamps, poses):
     ## Correct the false ids
+    id_pct = 0
+    txt = " "
     unique_ids = {}
     corrected_poses = {}
     corrected_timestamps = {}
     for track_id in codebook_match:
 
-        if len(codebook_match[track_id]) > 5:
+        if len(codebook_match[track_id]) > 10:
             unique_ids = {i: codebook_match[track_id].count(i) for i in codebook_match[track_id]}
             unique_ids = sorted(unique_ids.items(), key=operator.itemgetter(1), reverse=True)
             text = "I saw {} ".format(track_id) + " as {} {} ".format(unique_ids[0][0], unique_ids[0][1]) + "times!"
             print(text)
+            sum_det = 0
+            for i in range(len(unique_ids)):
+                sum_det = sum_det + unique_ids[i][1]
+
+            id_pct = unique_ids[0][1]*100/sum_det
+            txt = "I am {} ".format(round(id_pct)) + "% sure that I saw {}.".format(unique_ids[0][0])
+            print(txt)
             print(unique_ids)
 
             if online:
                 corrected_timestamps[unique_ids[0][0]] = timestamps[track_id]
                 corrected_poses[unique_ids[0][0]] = poses[track_id]
 
-    return corrected_poses, corrected_timestamps
+    return corrected_poses, corrected_timestamps, id_pct, txt
 
 def serial_landmarks(corrected_poses, corrected_timestamps):
     ## Arange observatiaranged_timestampsons timewise
@@ -66,10 +75,11 @@ def new_landmarks(online_data, detections, id, img, disp, parameters, codebook, 
 
         bbox = [int(j) for j in det[0:4]]  ## bbox = [x1 y1 x2 y2]
 
-        ## Find SURF features in the patch
+        ## Find ORB features in the patch
         patch = img[int(bbox[1] - exp_pct * bbox[1]) : int(bbox[3] + exp_pct * bbox[3]), int(bbox[0] - exp_pct * bbox[0]) : int(bbox[2] + exp_pct * bbox[2])]
         surf = cv2.xfeatures2d.SURF_create(hess_th)
         kp, des = surf.detectAndCompute(patch, None)
+
         old_objects[label] = des
 
         ## Bag of words frame comparison
@@ -114,15 +124,37 @@ class track_objects:
             best_matches = []
             bf = cv2.BFMatcher()
             bf_matches = bf.knnMatch(des, self.old_objects[object], k=2)
-            for m, n in bf_matches:
-                if m.distance < self.lowe_ratio * n.distance:
-                    good.append([m.distance])
-            pct = len(good) * 100 / des.shape[0]
+            pct = 0
+            for i, pair in enumerate(bf_matches):
+                try:
+                    m, n = pair
+                    if m.distance < self.lowe_ratio * n.distance:
+                        good.append([m.distance])
+                    pct = len(good) * 100 / des.shape[0]
+                except ValueError:
+                    pass
+            '''
+            if bf_matches is not None:
+                for m, n in bf_matches:
+                    if m.distance < self.lowe_ratio * n.distance:
+                        good.append([m.distance])
+                pct = len(good) * 100 / des.shape[0]
+            else:
+                pct = 0
+            '''
             self.pcts[object] = pct
 
         self.matches = sorted(self.pcts.items(), key=operator.itemgetter(1), reverse=True)
 
         return self
+
+    def extract_features(self, bbox):
+        ## Find SURF features in the patch
+        patch = self.img[int(bbox[1] - self.exp_pct * bbox[1]): int(bbox[3] + self.exp_pct * bbox[3]), int(bbox[0] - self.exp_pct * bbox[0]): int(bbox[2] + self.exp_pct * bbox[2])]
+        surf = cv2.xfeatures2d.SURF_create(self.hessian)
+        kp, des = surf.detectAndCompute(patch, None)
+
+        return kp, des
 
     ## Same number of objects in current and previous frame
     def less_or_equal_objects(self, detections, names, codebook, re_hist):
@@ -133,15 +165,15 @@ class track_objects:
             bbox = [int(j) for j in det[0:4]]  ## bbox = [x1 y1 x2 y2]
 
             ## Find SURF features in the patch
-            patch = self.img[int(bbox[1] - self.exp_pct * bbox[1]): int(bbox[3] + self.exp_pct * bbox[3]), int(bbox[0] - self.exp_pct * bbox[0]): int(bbox[2] + self.exp_pct * bbox[2])]
-            surf = cv2.xfeatures2d.SURF_create(self.hessian)
-            kp, des = surf.detectAndCompute(patch, None)
+            kp, des = track_objects.extract_features(self, bbox)
 
             ## Calculate match to object in previous frame
             track_objects.BF_match_finder(self, des)
 
             ## Same objects as before
-            if self.matches[0][1] > self.match_thres:
+            if self.matches[0][1] > self.match_thres: ## check if the match is valid
+
+                ## Current observation
                 self.new_objects[self.matches[0][0]] = des
 
                 ## Bag of words frame comparison
@@ -170,9 +202,9 @@ class track_objects:
                 label = names[int(det[5])] + str(self.id)
 
                 ## Find SURF features in the patch
-                patch = self.img[int(bbox[1] - self.exp_pct * bbox[1]): int(bbox[3] + self.exp_pct * bbox[3]), int(bbox[0] - self.exp_pct * bbox[0]): int(bbox[2] + self.exp_pct * bbox[2])]
-                surf = cv2.xfeatures2d.SURF_create(self.hessian)
-                kp, des = surf.detectAndCompute(patch, None)
+                kp, des = track_objects.extract_features(self, bbox)
+
+                ## Current observation
                 self.new_objects[label] = des
 
                 ## Bag of words frame comparison
@@ -205,7 +237,6 @@ class track_objects:
     ## More objects in current frame
     def more_objects(self, detections, names, codebook, re_hist):
         self.text_scene = "more new objects"
-        prev_match = 0
 
         ## Check in old objects and find which of the new ones is the best match
         found_matches = []
@@ -222,9 +253,7 @@ class track_objects:
                     bbox = [int(j) for j in det[0:4]]  ## bbox = [x1 y1 x2 y2]
 
                     ## Find SURF features in the patch
-                    patch = self.img[int(bbox[1] - self.exp_pct * bbox[1]): int(bbox[3] + self.exp_pct * bbox[3]), int(bbox[0] - self.exp_pct * bbox[0]): int(bbox[2] + self.exp_pct * bbox[2])]
-                    surf = cv2.xfeatures2d.SURF_create(self.hessian)
-                    kp, des = surf.detectAndCompute(patch, None)
+                    kp, des = track_objects.extract_features(self, bbox)
 
                     ## BF matcher - Find the best match in the current frame
                     good = []
@@ -243,6 +272,7 @@ class track_objects:
                         found_match_des[object] = des
                     prev_pct = pct
 
+                ## Current observation
                 self.new_objects[object] = found_match_des[object]
 
                 x1y1 = found_match_box[object]
@@ -276,9 +306,7 @@ class track_objects:
                             label = names[int(det[5])] + str(self.id)
 
                             ## Find SURF features in the patch
-                            patch = self.img[int(bbox[1] - self.exp_pct * bbox[1]): int(bbox[3] + self.exp_pct * bbox[3]), int(bbox[0] - self.exp_pct * bbox[0]): int(bbox[2] + self.exp_pct * bbox[2])]
-                            surf = cv2.xfeatures2d.SURF_create(self.hessian)
-                            kp, des = surf.detectAndCompute(patch, None)
+                            kp, des = track_objects.extract_features(self, bbox)
 
                             self.new_objects[label] = des
 
