@@ -73,7 +73,6 @@ class create_codebook:
         return self
 
     ## TF-IDF reweighting codebook's histogram
-
     def TF_IDF_reweight(self):
         ## normalized histogram
         nd = np.sum(self.hist_arr, axis=1).reshape(self.n_frames, 1)  # Total number of words in one frame
@@ -86,9 +85,18 @@ class create_codebook:
         re_hist_arr = norm_h * log_div
 
         index = 0
+        prev_id = 'start'
         for key, value in sorted(self.hist_cbook.items()):
-            self.re_hist[key] = re_hist_arr[index,:]
+            id_object = key.split('p')
+            id_object = id_object[0]
+            if id_object != prev_id:
+                n_bins = re_hist_arr.shape[1]
+                self.re_hist[id_object] = np.empty((1,n_bins))
+                self.re_hist[id_object] = np.append(self.re_hist[id_object], re_hist_arr[index, :].reshape(1,n_bins), axis=0)
+            else:
+                self.re_hist[id_object] = np.append(self.re_hist[id_object], re_hist_arr[index, :].reshape(1,n_bins), axis=0)
             index+=1
+            prev_id = id_object
 
         return self
 

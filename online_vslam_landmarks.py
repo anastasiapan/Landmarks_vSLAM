@@ -19,14 +19,14 @@ from V_SLAM_fcn.visual_tracker_fcn import *
 
 ## Load codebook and re-weighted histograms
 codebook =  np.load('./V_SLAM_fcn/codebook/Visual_Words100.npy') ## codebook
-re_hist = np.load('./V_SLAM_fcn/codebook/tfidf_histograms_b325_exp25.npy', allow_pickle=True).reshape(1, 1) ## dctionary histogram
+re_hist = np.load('./V_SLAM_fcn/codebook/tfidf_histograms_b325_exp25_arr.npy', allow_pickle=True).reshape(1, 1) ## dctionary histogram
 re_hist = re_hist[0,0]
 
 width = 640
 height = 480
 
 ## Parameters
-parameters = {"hess_th": 500, ## Hessian threshold for SURF features
+parameters = {"hess_th": 400, ## Hessian threshold for SURF features
               "lowe_ratio": 0.7, ## Lowe ratio for brute force matching
               "match_thres": 30, ## Matching threshold for the tracker
               "exp_pct": 0.6} ## Percentage for bounding box expansion
@@ -52,7 +52,7 @@ def detect(save_img=False):
     height = 480
     fps = 30
     codec = cv2.VideoWriter_fourcc(*'XVID')
-    output_path = './325_hess500_exp60_bowThres50.avi'
+    output_path = './325_hess400_exp60_Lratio08_array.avi'
     out_vid_write = cv2.VideoWriter(output_path, codec, fps, (width, height))
 
     out, source, weights, view_img, save_txt, imgsz = \
@@ -233,7 +233,7 @@ def detect(save_img=False):
 
                 new_scene = True ## sampling finished - new_scene
 
-        img2 = cv2.putText(im_rgb, txt, (0, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
+        img2 = cv2.putText(im_rgb, txt, (0, 60), cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 0, 255), 2, cv2.LINE_AA)
 
         fps_disp = (fps_disp + (1. / (torch_utils.time_synchronized() - t1))) / 2
         img2 = cv2.putText(img2, "FPS: {:.2f}".format(fps_disp), (0, 30),

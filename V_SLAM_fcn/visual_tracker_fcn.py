@@ -7,7 +7,7 @@ from V_SLAM_fcn.bag_of_words_fcn import BoVW_comparison
 ## Point clouds
 from V_SLAM_fcn.pcl_functions import cloud_object_center
 
-bow_thres = 50
+bow_thres = 0.8
 
 def sample(codebook_match, online, timestamps, poses):
     ## Correct the false ids
@@ -102,7 +102,7 @@ def new_landmarks(online_data, detections, id, img, disp, parameters, codebook, 
 
         codebook_match[label] = []
 
-        if BoVW_match.cos_pct > bow_thres:
+        if BoVW_match.diff_match < bow_thres:
             ## Append found match
             codebook_match[label].append(BoVW_match.object)
         else:
@@ -203,7 +203,7 @@ class track_objects:
                 BoVW_match = BoVW_comparison(codebook, re_hist, des, self.img, self.disp, bbox[0], bbox[1], obj_class)
                 self.new_histograms[self.matches[0][0]] = BoVW_match.hist
 
-                if BoVW_match.cos_pct > bow_thres:
+                if BoVW_match.diff_match < bow_thres:
                     ## Append found match
                     self.codebook_match[self.matches[0][0]].append(BoVW_match.object)
                 else:
@@ -241,7 +241,7 @@ class track_objects:
                 ## Append found match
                 self.codebook_match[label] = []
 
-                if BoVW_match.cos_pct > bow_thres:
+                if BoVW_match.diff_match < bow_thres:
                     ## Append found match
                     self.codebook_match[label].append(BoVW_match.object)
                 else:
@@ -314,7 +314,7 @@ class track_objects:
                 self.new_histograms[object] = BoVW_match.hist
 
                 ## Append found match
-                if BoVW_match.cos_pct > bow_thres:
+                if BoVW_match.diff_match < bow_thres:
                     ## Append found match
                     self.codebook_match[object].append(BoVW_match.object)
                 else:
@@ -352,7 +352,7 @@ class track_objects:
                             ## Append found match
                             self.codebook_match[label] = []
 
-                            if BoVW_match.cos_pct > bow_thres:
+                            if BoVW_match.diff_match < bow_thres:
                                 ## Append found match
                                 self.codebook_match[label].append(BoVW_match.object)
                             else:
