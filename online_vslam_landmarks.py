@@ -19,17 +19,17 @@ from V_SLAM_fcn.visual_tracker_fcn import *
 
 ## Load codebook and re-weighted histograms
 codebook =  np.load('./V_SLAM_fcn/codebook/Visual_Words100.npy') ## codebook
-re_hist = np.load('./V_SLAM_fcn/codebook/tfidf_histograms_b329_exp25.npy', allow_pickle=True).reshape(1, 1) ## dctionary histogram
+re_hist = np.load('./V_SLAM_fcn/codebook/tfidf_histograms_b325_exp25.npy', allow_pickle=True).reshape(1, 1) ## dctionary histogram
 re_hist = re_hist[0,0]
 
 width = 640
 height = 480
 
 ## Parameters
-parameters = {"hess_th": 400, ## Hessian threshold for SURF features
+parameters = {"hess_th": 500, ## Hessian threshold for SURF features
               "lowe_ratio": 0.7, ## Lowe ratio for brute force matching
-              "match_thres": 5, ## Matching threshold for the tracker
-              "exp_pct": 0.5} ## Percentage for bounding box expansion
+              "match_thres": 30, ## Matching threshold for the tracker
+              "exp_pct": 0.6} ## Percentage for bounding box expansion
 
 online_flag = False ## Run online or from a video
 #----------------------------------------------------------------------------------#
@@ -52,7 +52,7 @@ def detect(save_img=False):
     height = 480
     fps = 30
     codec = cv2.VideoWriter_fourcc(*'XVID')
-    output_path = './DTU100_hess400_exp40.avi'
+    output_path = './325_hess500_exp60_bowThres50.avi'
     out_vid_write = cv2.VideoWriter(output_path, codec, fps, (width, height))
 
     out, source, weights, view_img, save_txt, imgsz = \
@@ -301,11 +301,11 @@ def detect(save_img=False):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--weights', type=str, default='weights/best_yolov5x_custom.pt', help='model.pt path')
-    parser.add_argument('--source', type=str, default='inference/videos/329_test_video_3cones_01.avi', help='source')  # file/folder, 0 for webcam
+    parser.add_argument('--weights', type=str, default='weights/best_yolov5x_custom_3.pt', help='model.pt path')
+    parser.add_argument('--source', type=str, default='inference/videos/325_test_video_01.avi', help='source')  # file/folder, 0 for webcam
     parser.add_argument('--output', type=str, default='inference/output/', help='output folder')  # output folder
     parser.add_argument('--img-size', type=int, default=416, help='inference size (pixels)')
-    parser.add_argument('--conf-thres', type=float, default=0.8, help='object confidence threshold')
+    parser.add_argument('--conf-thres', type=float, default=0.85, help='object confidence threshold')
     parser.add_argument('--iou-thres', type=float, default=0.5, help='IOU threshold for NMS')
     parser.add_argument('--fourcc', type=str, default='mp4v', help='output video codec (verify ffmpeg support)')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')

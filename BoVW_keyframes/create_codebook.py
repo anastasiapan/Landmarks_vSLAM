@@ -12,7 +12,7 @@ import numpy as np
 from codebook_fcn import *
 
 ## Path to keyframes
-img_path=glob.glob("./329_keyframes/*.png")
+img_path=glob.glob("./325_keyframes/*.png")
 vocab_path=glob.glob("./vocabulary_images/*.png")
 
 ## SURF features
@@ -37,6 +37,6 @@ else:
 
 ## Create keyframes histograms
 codebook = create_codebook(img_path, des_size, hess_th, v_words)
-np.save('../V_SLAM_fcn/codebook/histograms_b329_exp25', codebook.hist_cbook)
-np.save('../V_SLAM_fcn/codebook/tfidf_histograms_b329_exp25', codebook.re_hist)
+np.save('../V_SLAM_fcn/codebook/histograms_b325_exp25', codebook.hist_cbook)
+np.save('../V_SLAM_fcn/codebook/tfidf_histograms_b325_exp25', codebook.re_hist)
 

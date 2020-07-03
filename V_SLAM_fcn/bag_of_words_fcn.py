@@ -26,11 +26,14 @@ class BoVW_comparison:
         sim_cos = {}
         eucl_dist = {}
         for key in self.codebook_hist:
-            eucl_dist[key] = np.linalg.norm(self.codebook_hist[key] - self.hist)
-            dotP = np.sum(self.codebook_hist[key] * self.hist)
-            norm = np.linalg.norm(self.hist)
-            norm_codebook = np.linalg.norm(self.codebook_hist[key])
-            sim_cos[key] = dotP / (norm * norm_codebook)
+            curr_id = key.split('_')
+            curr_id = curr_id[0]
+            if curr_id == self.obj_class:
+                eucl_dist[key] = np.linalg.norm(self.codebook_hist[key] - self.hist)
+                dotP = np.sum(self.codebook_hist[key] * self.hist)
+                norm = np.linalg.norm(self.hist)
+                norm_codebook = np.linalg.norm(self.codebook_hist[key])
+                sim_cos[key] = dotP / (norm * norm_codebook)
 
         ## Most similar frame
         self.object = max(sim_cos.keys(), key=(lambda k: sim_cos[k]))
@@ -53,7 +56,7 @@ class BoVW_comparison:
 
         return self
 
-    def __init__(self, codebook, codebook_histograms, des, frame, disp, x_txt, y_txt):
+    def __init__(self, codebook, codebook_histograms, des, frame, disp, x_txt, y_txt, object_class):
         self.codebook = codebook
         self.codebook_hist = codebook_histograms
         self.current_des = des
@@ -62,6 +65,7 @@ class BoVW_comparison:
         self.object = " "
         self.img = frame
         self.disp = disp
+        self.obj_class = object_class
 
         if des is not None:
             BoVW_comparison.img_hist(self) ## Create image histogram

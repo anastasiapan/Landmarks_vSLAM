@@ -7,6 +7,8 @@ from V_SLAM_fcn.bag_of_words_fcn import BoVW_comparison
 ## Point clouds
 from V_SLAM_fcn.pcl_functions import cloud_object_center
 
+bow_thres = 50
+
 def sample(codebook_match, online, timestamps, poses):
     ## Correct the false ids
     id_pct = 0
@@ -19,25 +21,35 @@ def sample(codebook_match, online, timestamps, poses):
         if len(codebook_match[track_id]) > 10:
             unique_ids = {i: codebook_match[track_id].count(i) for i in codebook_match[track_id]}
             unique_ids = sorted(unique_ids.items(), key=operator.itemgetter(1), reverse=True)
-            text = "I saw {} ".format(track_id) + " as {} {} ".format(unique_ids[0][0], unique_ids[0][1]) + "times!"
+
+            best_match = unique_ids[0][0]
+            best_pct = unique_ids[0][1]
+
+            if best_match == 'bad_match' and len(unique_ids) > 1:
+                best_match = unique_ids[1][0]
+                best_pct = unique_ids[1][1]
+
+            text = "I saw {} ".format(track_id) + " as {} {} ".format(best_match, best_pct) + "times!"
             print(text)
             sum_det = 0
-            for i in range(len(unique_ids)):
-                sum_det = sum_det + unique_ids[i][1]
 
-            id_pct = unique_ids[0][1]*100/sum_det
-            txt = "I am {} ".format(round(id_pct)) + "% sure that I saw {}.".format(unique_ids[0][0])
+            for i in range(len(unique_ids)):
+                if unique_ids[i][0] != 'bad_match':
+                    sum_det = sum_det + unique_ids[i][1]
+
+            id_pct = best_pct*100/sum_det if sum_det != 0 else 0
+            txt = "I am {} ".format(round(id_pct)) + "% sure that I saw {}.".format(best_match)
             print(txt)
             print(unique_ids)
 
             if online:
-                corrected_timestamps[unique_ids[0][0]] = timestamps[track_id]
-                corrected_poses[unique_ids[0][0]] = poses[track_id]
+                corrected_timestamps[best_match] = timestamps[track_id]
+                corrected_poses[best_match] = poses[track_id]
 
     return corrected_poses, corrected_timestamps, id_pct, txt
 
 def serial_landmarks(corrected_poses, corrected_timestamps):
-    ## Arange observatiaranged_timestampsons timewise
+    ## Arange observations timewise
     arranged_timestamps = {}
     arranged_poses = {}
 
@@ -71,6 +83,7 @@ def new_landmarks(online_data, detections, id, img, disp, parameters, codebook, 
 
     for i in range(len(detections)):
         det = detections[i].data.cpu().tolist()
+        obj_class = names[int(det[5])]
         label = names[int(det[5])] + str(id)
 
         bbox = [int(j) for j in det[0:4]]  ## bbox = [x1 y1 x2 y2]
@@ -80,14 +93,20 @@ def new_landmarks(online_data, detections, id, img, disp, parameters, codebook, 
         surf = cv2.xfeatures2d.SURF_create(hess_th)
         kp, des = surf.detectAndCompute(patch, None)
 
-        old_objects[label] = des
+        #old_objects[label] = hist
 
         ## Bag of words frame comparison
-        BoVW_match = BoVW_comparison(codebook, re_hist, des, img, disp, bbox[0], bbox[1])
+        BoVW_match = BoVW_comparison(codebook, re_hist, des, img, disp, bbox[0], bbox[1], obj_class)
         old_histograms[label] = BoVW_match.hist
+        old_objects[label] = old_histograms[label]
 
         codebook_match[label] = []
-        codebook_match[label].append(BoVW_match.object)
+
+        if BoVW_match.cos_pct > bow_thres:
+            ## Append found match
+            codebook_match[label].append(BoVW_match.object)
+        else:
+            codebook_match[label].append('bad_match')
 
         ## Put text next to the bounding box
         org = (bbox[0] + 10, bbox[1] + 20)  # org - text starting point
@@ -117,44 +136,47 @@ class track_objects:
         return self
 
     ## Find good matches - Brute force matching - Lowe ratio test
-    def BF_match_finder(self, des):
+    def BF_match_finder(self, des, hist):
         ## Best match
         for object in self.old_objects:
-            good = []
-            best_matches = []
-            bf = cv2.BFMatcher()
-            bf_matches = bf.knnMatch(des, self.old_objects[object], k=2)
-            pct = 0
-            for i, pair in enumerate(bf_matches):
-                try:
-                    m, n = pair
-                    if m.distance < self.lowe_ratio * n.distance:
-                        good.append([m.distance])
-                    pct = len(good) * 100 / des.shape[0]
-                except ValueError:
-                    pass
-            '''
-            if bf_matches is not None:
-                for m, n in bf_matches:
-                    if m.distance < self.lowe_ratio * n.distance:
-                        good.append([m.distance])
-                pct = len(good) * 100 / des.shape[0]
-            else:
-                pct = 0
-            '''
-            self.pcts[object] = pct
+            #eucl_dist = np.linalg.norm(self.old_objects[object] - hist)
+            dotP = np.sum(self.old_objects[object] * hist)
+            norm = np.linalg.norm(hist)
+            norm_codebook = np.linalg.norm(self.old_objects[object])
+            sim_cos = dotP*100 / (norm * norm_codebook)
+
+            self.pcts[object] = sim_cos
 
         self.matches = sorted(self.pcts.items(), key=operator.itemgetter(1), reverse=True)
 
         return self
 
-    def extract_features(self, bbox):
+    def extract_features(self, bbox, codebook):
         ## Find SURF features in the patch
         patch = self.img[int(bbox[1] - self.exp_pct * bbox[1]): int(bbox[3] + self.exp_pct * bbox[3]), int(bbox[0] - self.exp_pct * bbox[0]): int(bbox[2] + self.exp_pct * bbox[2])]
         surf = cv2.xfeatures2d.SURF_create(self.hessian)
         kp, des = surf.detectAndCompute(patch, None)
 
-        return kp, des
+        hess = self.hessian
+        while des is None:
+            hess = hess - 50
+            surf = cv2.xfeatures2d.SURF_create(hess)
+            kp, des = surf.detectAndCompute(patch, None)
+
+        ## Calculate histogram
+        k = codebook.shape[0]
+
+        num_feat = des.shape[0]  # Number of extracted features for frame to be tested
+        des = np.dstack(np.split(des, num_feat))
+
+        words_stack = np.dstack([codebook] * num_feat)  ## stack words depthwise
+        diff = words_stack - des
+        dist = np.linalg.norm(diff, axis=1)
+        idx = np.argmin(dist, axis=0)
+        hist, n_bins = np.histogram(idx, bins=k)
+        hist = hist.reshape(1, k)
+
+        return kp, des, hist
 
     ## Same number of objects in current and previous frame
     def less_or_equal_objects(self, detections, names, codebook, re_hist):
@@ -162,13 +184,14 @@ class track_objects:
 
         for i in range(self.new_num):
             det = detections[i].data.cpu().tolist()
+            obj_class = names[int(det[5])]
             bbox = [int(j) for j in det[0:4]]  ## bbox = [x1 y1 x2 y2]
 
             ## Find SURF features in the patch
-            kp, des = track_objects.extract_features(self, bbox)
+            kp, des, hist = track_objects.extract_features(self, bbox, codebook)
 
             ## Calculate match to object in previous frame
-            track_objects.BF_match_finder(self, des)
+            track_objects.BF_match_finder(self, des, hist)
 
             ## Same objects as before
             if self.matches[0][1] > self.match_thres: ## check if the match is valid
@@ -177,11 +200,14 @@ class track_objects:
                 self.new_objects[self.matches[0][0]] = des
 
                 ## Bag of words frame comparison
-                BoVW_match = BoVW_comparison(codebook, re_hist, des, self.img, self.disp, bbox[0], bbox[1])
+                BoVW_match = BoVW_comparison(codebook, re_hist, des, self.img, self.disp, bbox[0], bbox[1], obj_class)
                 self.new_histograms[self.matches[0][0]] = BoVW_match.hist
 
-                ## Append found match
-                self.codebook_match[self.matches[0][0]].append(BoVW_match.object)
+                if BoVW_match.cos_pct > bow_thres:
+                    ## Append found match
+                    self.codebook_match[self.matches[0][0]].append(BoVW_match.object)
+                else:
+                    self.codebook_match[self.matches[0][0]].append('bad_match')
 
                 ## Online operation
                 if self.online_flag:
@@ -199,21 +225,27 @@ class track_objects:
             else:
                 self.text_scene = "new object"
                 self.id += 1
+                obj_class = names[int(det[5])]
                 label = names[int(det[5])] + str(self.id)
 
                 ## Find SURF features in the patch
-                kp, des = track_objects.extract_features(self, bbox)
+                kp, des, hist = track_objects.extract_features(self, bbox, codebook)
 
                 ## Current observation
                 self.new_objects[label] = des
 
                 ## Bag of words frame comparison
-                BoVW_match = BoVW_comparison(codebook, re_hist, des, self.img, self.disp, bbox[0], bbox[1])
+                BoVW_match = BoVW_comparison(codebook, re_hist, des, self.img, self.disp, bbox[0], bbox[1], obj_class)
                 self.new_histograms[label] = BoVW_match.hist
 
                 ## Append found match
                 self.codebook_match[label] = []
-                self.codebook_match[label].append(BoVW_match.object)
+
+                if BoVW_match.cos_pct > bow_thres:
+                    ## Append found match
+                    self.codebook_match[label].append(BoVW_match.object)
+                else:
+                    self.codebook_match[label].append('bad_match')
 
                 ## Online operation
                 if self.online_flag:
@@ -229,7 +261,7 @@ class track_objects:
                 self.txt = '{} new'.format(label)
                 track_objects.draw_text(self, bbox[0], bbox[1])
 
-            self.old_objects = self.new_objects
+            self.old_objects = self.new_histograms
             self.old_num = self.new_num
 
             return self
@@ -250,19 +282,17 @@ class track_objects:
 
                 for i in range(self.new_num):
                     det = detections[i].data.cpu().tolist()
+                    obj_class = names[int(det[5])]
                     bbox = [int(j) for j in det[0:4]]  ## bbox = [x1 y1 x2 y2]
 
                     ## Find SURF features in the patch
-                    kp, des = track_objects.extract_features(self, bbox)
+                    kp, des, hist = track_objects.extract_features(self, bbox, codebook)
 
                     ## BF matcher - Find the best match in the current frame
-                    good = []
-                    bf = cv2.BFMatcher()
-                    bf_matches = bf.knnMatch(des, self.old_objects[object], k=2)
-                    for m, n in bf_matches:
-                        if m.distance < self.lowe_ratio * n.distance:
-                            good.append([m.distance])
-                    pct = len(good) * 100 / len(kp)
+                    dotP = np.sum(self.old_objects[object] * hist)
+                    norm = np.linalg.norm(hist)
+                    norm_codebook = np.linalg.norm(self.old_objects[object])
+                    pct = dotP*100 / (norm * norm_codebook)
 
                     ## Keep best match
                     if pct > prev_pct:
@@ -280,11 +310,15 @@ class track_objects:
                 track_objects.draw_text(self, x1y1[0], x1y1[1])
 
                 ## Bag of words frame comparison
-                BoVW_match = BoVW_comparison(codebook, re_hist, found_match_des[object], self.img, self.disp, x1y1[0], x1y1[1])
+                BoVW_match = BoVW_comparison(codebook, re_hist, found_match_des[object], self.img, self.disp, x1y1[0], x1y1[1], obj_class)
                 self.new_histograms[object] = BoVW_match.hist
 
                 ## Append found match
-                self.codebook_match[object].append(BoVW_match.object)
+                if BoVW_match.cos_pct > bow_thres:
+                    ## Append found match
+                    self.codebook_match[object].append(BoVW_match.object)
+                else:
+                    self.codebook_match[object].append('bad_match')
 
                 ## Online operation
                 if self.online_flag:
@@ -299,6 +333,7 @@ class track_objects:
                 if object == list(self.old_objects.keys())[-1]: ## last loop - last object which has a match
                     for i in range(self.new_num): ## check which objects are left out
                         det = detections[i].data.cpu().tolist()
+                        obj_class = names[int(det[5])]
                         bbox = [int(j) for j in det[0:4]]  ## bbox = [x1 y1 x2 y2]
 
                         if [bbox[0], bbox[1]] not in found_matches:
@@ -306,17 +341,22 @@ class track_objects:
                             label = names[int(det[5])] + str(self.id)
 
                             ## Find SURF features in the patch
-                            kp, des = track_objects.extract_features(self, bbox)
+                            kp, des, hist = track_objects.extract_features(self, bbox, codebook)
 
                             self.new_objects[label] = des
 
                             ## Bag of words frame comparison
-                            BoVW_match = BoVW_comparison(codebook, re_hist, des, self.img, self.disp, bbox[0], bbox[1])
+                            BoVW_match = BoVW_comparison(codebook, re_hist, des, self.img, self.disp, bbox[0], bbox[1], obj_class)
                             self.new_histograms[label] = BoVW_match.hist
 
                             ## Append found match
                             self.codebook_match[label] = []
-                            self.codebook_match[label].append(BoVW_match.object)
+
+                            if BoVW_match.cos_pct > bow_thres:
+                                ## Append found match
+                                self.codebook_match[label].append(BoVW_match.object)
+                            else:
+                                self.codebook_match[label].append('bad_match')
 
                             ## Online operation
                             if self.online_flag:
@@ -331,7 +371,7 @@ class track_objects:
                             self.txt = '{} new'.format(label)
                             track_objects.draw_text(self, bbox[0], bbox[1])
 
-        self.old_objects = self.new_objects
+        self.old_objects = self.new_histograms
         self.old_num = self.new_num
 
         return self

@@ -3,7 +3,7 @@ import argparse
 import torch.backends.cudnn as cudnn
 
 from utils import google_utils
-from utils.datasets import *
+from utils.datasets_webcam import *
 from utils.utils import *
 
 
@@ -53,7 +53,12 @@ def detect(save_img=False):
     t0 = time.time()
     img = torch.zeros((1, 3, imgsz, imgsz), device=device)  # init img
     _ = model(img.half() if half else img) if device.type != 'cpu' else None  # run once
-    for path, img, im0s, dmap, vid_cap in dataset:
+
+    exp_pct = 0.5
+    kf_num = 0
+
+    for path, img, im0s, vid_cap in dataset:
+        kf_num += 1
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
@@ -96,6 +101,7 @@ def detect(save_img=False):
                     s += '%g %ss, ' % (n, names[int(c)])  # add to string
 
                 # Write results
+                i = 0
                 for *xyxy, conf, cls in det:
                     if save_txt:  # Write to file
                         xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
@@ -105,6 +111,14 @@ def detect(save_img=False):
                     if save_img or view_img:  # Add bbox to image
                         label = '%s %.2f' % (names[int(cls)], conf)
                         plot_one_box(xyxy, im_rgb, label=label, color=colors[int(cls)], line_thickness=3)
+                        label_print = names[int(cls)]
+                        print(label_print)
+                        if names[int(cls)] == "Fire Extinguisher":
+                            det1 = det[i].data.cpu().tolist()
+                            bbox = [int(j) for j in det1[0:4]]
+                            patch = im0[int(bbox[1] - exp_pct * bbox[1]): int(bbox[3] + exp_pct * bbox[3]),int(bbox[0] - exp_pct * bbox[0]): int(bbox[2] + exp_pct * bbox[2])]
+
+                        i += 1
 
             # Print time (inference + NMS)
             print('%sDone. (%.3fs)' % (s, t2 - t1))
@@ -117,8 +131,20 @@ def detect(save_img=False):
 
             # Save results (image with detections)
             if save_img:
-                if dataset.mode == 'images':
-                    cv2.imwrite(save_path, im_rgb)
+                path = 'inference/output/'
+                if dataset.mode == 'images':## Store features
+                    if kf_num <= 6:
+                        name = label_print + '_1p' + str(kf_num)
+                    elif kf_num > 6 and kf_num <= 15:
+                        name = label_print + '_1p' + str(kf_num)
+                        cv2.imwrite(path + name + '.png', patch)
+                    elif kf_num > 15 and kf_num <= 25:
+                        name = label_print + '_2p' + str(kf_num)
+                    else:
+                        name = label_print + '_2p' + str(kf_num)
+                        cv2.imwrite(path + name + '.png', patch)
+
+                    #cv2.imwrite(path + name + '.png', patch)
                 else:
                     if vid_path != save_path:  # new video
                         vid_path = save_path
@@ -142,10 +168,10 @@ def detect(save_img=False):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', type=str, default='weights/best_yolov5x_custom_3.pt', help='model.pt path')
-    parser.add_argument('--source', type=str, default='0', help='source')  # file/folder, 0 for webcam
+    parser.add_argument('--source', type=str, default='BoVW_keyframes/', help='source')  # file/folder, 0 for webcam
     parser.add_argument('--output', type=str, default='inference/output', help='output folder')  # output folder
     parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')
-    parser.add_argument('--conf-thres', type=float, default=0.4, help='object confidence threshold')
+    parser.add_argument('--conf-thres', type=float, default=0.7, help='object confidence threshold')
     parser.add_argument('--iou-thres', type=float, default=0.5, help='IOU threshold for NMS')
     parser.add_argument('--fourcc', type=str, default='mp4v', help='output video codec (verify ffmpeg support)')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
