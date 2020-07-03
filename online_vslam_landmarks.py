@@ -29,7 +29,7 @@ height = 480
 parameters = {"hess_th": 400, ## Hessian threshold for SURF features
               "lowe_ratio": 0.7, ## Lowe ratio for brute force matching
               "match_thres": 5, ## Matching threshold for the tracker
-              "exp_pct": 0.4} ## Percentage for bounding box expansion
+              "exp_pct": 0.5} ## Percentage for bounding box expansion
 
 online_flag = False ## Run online or from a video
 #----------------------------------------------------------------------------------#
@@ -302,7 +302,7 @@ def detect(save_img=False):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', type=str, default='weights/best_yolov5x_custom.pt', help='model.pt path')
-    parser.add_argument('--source', type=str, default='inference/videos/329_test_video_02.avi', help='source')  # file/folder, 0 for webcam
+    parser.add_argument('--source', type=str, default='inference/videos/329_test_video_3cones_01.avi', help='source')  # file/folder, 0 for webcam
     parser.add_argument('--output', type=str, default='inference/output/', help='output folder')  # output folder
     parser.add_argument('--img-size', type=int, default=416, help='inference size (pixels)')
     parser.add_argument('--conf-thres', type=float, default=0.8, help='object confidence threshold')
