@@ -7,7 +7,7 @@ from V_SLAM_fcn.bag_of_words_fcn import BoVW_comparison
 ## Point clouds
 from V_SLAM_fcn.pcl_functions import cloud_object_center
 
-bow_thres = 0.8
+bow_thres = 0.7
 
 def sample(codebook_match, online, timestamps, poses):
     ## Correct the false ids
@@ -18,7 +18,7 @@ def sample(codebook_match, online, timestamps, poses):
     corrected_timestamps = {}
     for track_id in codebook_match:
 
-        if len(codebook_match[track_id]) > 10:
+        if len(codebook_match[track_id]) > 20:
             unique_ids = {i: codebook_match[track_id].count(i) for i in codebook_match[track_id]}
             unique_ids = sorted(unique_ids.items(), key=operator.itemgetter(1), reverse=True)
 
@@ -32,15 +32,20 @@ def sample(codebook_match, online, timestamps, poses):
             text = "I saw {} ".format(track_id) + " as {} {} ".format(best_match, best_pct) + "times!"
             print(text)
             sum_det = 0
-
+            sum_tot = 0
             for i in range(len(unique_ids)):
                 if unique_ids[i][0] != 'bad_match':
                     sum_det = sum_det + unique_ids[i][1]
+                sum_tot = sum_tot + unique_ids[i][1]
+
 
             id_pct = best_pct*100/sum_det if sum_det != 0 else 0
+            id_tot =best_pct*100/sum_tot if sum_tot != 0 else 0
             txt = "I am {} ".format(round(id_pct)) + "% sure that I saw {}.".format(best_match)
             print(txt)
+            print("Tot: I am {} ".format(round(id_tot)) + "% sure that I saw {}.".format(best_match))
             print(unique_ids)
+            print("-------------------------------------------------------------------------------")
 
             if online:
                 corrected_timestamps[best_match] = timestamps[track_id]

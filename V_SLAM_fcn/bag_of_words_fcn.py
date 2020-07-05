@@ -96,7 +96,7 @@ class BoVW_comparison:
             org = (int(x_txt + 10), int(y_txt + 110))  # org - text starting point
             disp_match = round(self.diff_match,3)
             txt = '{}'.format(disp_match)
-            col = (255, 150, 0) if disp_match < 0.8 else (0, 0, 255)
+            col = (255, 150, 0) if disp_match < 0.7 else (0, 0, 255)
             self.disp = cv2.putText(self.disp, txt, org, cv2.FONT_HERSHEY_COMPLEX_SMALL, 1,col , 2, cv2.LINE_AA)
         else:
             self.hist = 0
