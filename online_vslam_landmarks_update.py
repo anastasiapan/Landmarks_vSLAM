@@ -15,12 +15,12 @@ import operator
 import numpy as np
 
 ## Find best match
-from V_SLAM_fcn.visual_tracker_fcn import *
+from V_SLAM_fcn.visual_tracker_fcn_update import *
 
 ## Load codebook and re-weighted histograms
 codebook =  np.load('./V_SLAM_fcn/codebook/Visual_Words100.npy') ## codebook
-re_hist = np.load('./V_SLAM_fcn/codebook/tfidf_histograms_b329_arr.npy', allow_pickle=True).reshape(1, 1) ## dctionary histogram
-re_hist = re_hist[0,0]
+#re_hist = np.load('./V_SLAM_fcn/codebook/tfidf_histograms_b329_arr.npy', allow_pickle=True).reshape(1, 1) ## dctionary histogram
+#re_hist = re_hist[0,0]
 
 width = 640
 height = 480
@@ -104,14 +104,12 @@ def detect(save_img=False):
     _ = model(img.half() if half else img) if device.type != 'cpu' else None  # run once
 
     ## Init
-    track_ended = True
+    first_detection = True
     id = 0
     old_objects = {}
     old_num = 0
     codebook_match = {}
     txt = " "
-    #id_pct = 0
-    first_detection = True
 
     ## Main loop
     for path, img, im0s, d_map, vid_cap in dataset:
@@ -138,7 +136,6 @@ def detect(save_img=False):
 
         # Apply NMS
         pred = non_max_suppression(pred, opt.conf_thres, opt.iou_thres, classes=opt.classes, agnostic=opt.agnostic_nms)
-        t2 = torch_utils.time_synchronized()
 
         # Apply Classifier
         if classify:
@@ -203,41 +200,35 @@ def detect(save_img=False):
             if objects is not None:
                 if first_detection:
                     id += 1
-                    first_detection = False
-                    track_ended = False
                     old_num = len(objects)
-                    im_rgb, old_objects, old_histograms, codebook_match, timestamps, poses = new_landmarks(online_data, objects, id, im0, im_rgb, parameters, codebook, re_hist, names)
+                    im_rgb, old_objects, tracked_histograms = new_landmarks(objects, id, im0, im_rgb, parameters, codebook, names)
 
+                    first_detection = False
                 else:
-                    tracker = track_objects(online_data, old_num, parameters, im0, im_rgb, old_objects,
-                                            objects, id, codebook, re_hist, codebook_match, timestamps, poses, names)
+                    tracker = track_detections(old_num, parameters, im0, im_rgb, old_objects, objects, id, codebook,names, tracked_histograms)
                     id = tracker.id
                     old_objects = tracker.old_objects
                     old_num = tracker.old_num
-                    codebook_match = tracker.codebook_match
-                    timestamps = tracker.timestamps
-                    poses = tracker.poses
                     im_rgb = tracker.disp
-                    track_ended = tracker.track_ended
+                    tracked_histograms = tracker.tracked_histograms
 
-                    if track_ended:
-                        ## Sample results
-                        sampled_poses, sampled_tstamps, id_pct, txt = sample(codebook_match, online_flag, timestamps,
-                                                                             poses)
-
-                        if online_flag and id_pct > 70:  ## If running online publish landmarks list
-                            arranged_poses, arranged_tstamps = serial_landmarks(sampled_poses, sampled_tstamps)
-
-                            ## Publish landmarks
-                            for ts in arranged_tstamps:
-                                lmk_list = landmark_pub(arranged_poses[ts], arranged_tstamps[ts],
-                                                        rospy.Time.from_sec(int(ts) / 1e9))
-                                lmk_pub.publish(lmk_list)
-
-            #else:  ## no objects in frame
+            else:  ## no objects in frame
+                '''
+                if not new_scene:
+                    ## Sample results
+                    sampled_poses, sampled_tstamps, id_pct, txt = sample(codebook_match, online_flag, timestamps, poses)
 
 
-                #new_scene = True ## sampling finished - new_scene
+                    if online_flag and id_pct>70: ## If running online publish landmarks list
+                        arranged_poses, arranged_tstamps = serial_landmarks(sampled_poses, sampled_tstamps)
+
+                        ## Publish landmarks
+                        for ts in arranged_tstamps:
+                            lmk_list = landmark_pub(arranged_poses[ts], arranged_tstamps[ts], rospy.Time.from_sec(int(ts) / 1e9))
+                            lmk_pub.publish(lmk_list)
+                '''
+
+                new_scene = True ## sampling finished - new_scene
 
         img2 = cv2.putText(im_rgb, txt, (0, 60), cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 0, 255), 2, cv2.LINE_AA)
 
@@ -253,7 +244,9 @@ def detect(save_img=False):
             else:
                 cv2.imshow('output', img2)
                 out_vid_write.write(img2)
+
             if cv2.waitKey(1) == ord('q'):  # q to quit
+                '''
                 ## Sample results before exiting
                 sampled_poses, sampled_tstamps, id_pct, txt = sample(codebook_match, online_flag, timestamps, poses)
 
@@ -265,6 +258,7 @@ def detect(save_img=False):
                         lmk_list = landmark_pub(arranged_poses[ts], arranged_tstamps[ts],
                                                 rospy.Time.from_sec(int(ts) / 1e9))
                         lmk_pub.publish(lmk_list)
+                '''
 
                 raise StopIteration
 
@@ -287,6 +281,7 @@ def detect(save_img=False):
 
     if save_txt or save_img:
         ## Sample results before exiting
+        '''
         sampled_poses, sampled_tstamps, id_pct, txt = sample(codebook_match, online_flag, timestamps, poses)
 
         if online_flag and id_pct>70:  ## If running online publish landmarks list
@@ -297,6 +292,7 @@ def detect(save_img=False):
                 lmk_list = landmark_pub(arranged_poses[ts], arranged_tstamps[ts],
                                         rospy.Time.from_sec(int(ts) / 1e9))
                 lmk_pub.publish(lmk_list)
+        '''
 
         print('Results saved to %s' % os.getcwd() + os.sep + out)
         if platform == 'darwin':  # MacOS

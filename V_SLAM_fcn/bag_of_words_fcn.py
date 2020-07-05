@@ -26,18 +26,26 @@ class BoVW_comparison:
         #n_frames = len(self.codebook_hist)
         sim_cos = {}
         #eucl_dist = {}
+        cb_hist = list(self.codebook_hist.items())
+        cb_hist = dict(cb_hist[0:-1])
+
+        #for key in cb_hist:
         for key in self.codebook_hist:
             curr_id = key.split('_')
             curr_id = curr_id[0]
-            if curr_id == self.obj_class:
+            #keyframe_hist = cb_hist[key]
+            #print(keyframe_hist.shape)
+            if curr_id == self.obj_class: # and keyframe_hist.shape[0] > 15:
                 #eucl_dist[key] = np.linalg.norm(self.codebook_hist[key] - self.hist)
                 dotP = np.sum(self.codebook_hist[key] * self.hist, axis=1)
                 norm = np.linalg.norm(self.hist)
                 norm_codebook = np.linalg.norm(self.codebook_hist[key], axis=1)
                 sim_arr = dotP / (norm * norm_codebook)
                 sim_arr[np.isinf(sim_arr)] = 0
+                sim_arr[np.isnan(sim_arr)] = 0
                 sim_cos[key] = max(sim_arr)
-
+            else:
+                sim_cos[key] = 0
 
         ## Most similar frame
         sim_cos = sorted(sim_cos.items(), key=operator.itemgetter(1), reverse=True)
@@ -49,10 +57,11 @@ class BoVW_comparison:
         self.cos_pct = sim_cos[0][1]*100
 
         ## Second best match
+        #if len(sim_cos) > 1:
         self.sbo = sim_cos[1][0]
         self.sbp = sim_cos[1][1]*100
 
-        self.diff_match = self.sbp/self.cos_pct
+        self.diff_match = self.sbp/self.cos_pct if self.cos_pct != 0 else 1.0
 
         ## Split the strings
         #self.object = self.object.split('p')
@@ -79,7 +88,9 @@ class BoVW_comparison:
         self.img = frame
         self.disp = disp
         self.obj_class = object_class
-        self.diff_match = 0
+        self.sbo = 0
+        self.sbp = 0
+        self.diff_match = 0.0
 
         if des is not None:
             BoVW_comparison.img_hist(self) ## Create image histogram
@@ -96,7 +107,7 @@ class BoVW_comparison:
             org = (int(x_txt + 10), int(y_txt + 110))  # org - text starting point
             disp_match = round(self.diff_match,3)
             txt = '{}'.format(disp_match)
-            col = (255, 150, 0) if disp_match < 0.7 else (0, 0, 255)
+            col = (255, 150, 0) if disp_match < 0.95 else (0, 0, 255)
             self.disp = cv2.putText(self.disp, txt, org, cv2.FONT_HERSHEY_COMPLEX_SMALL, 1,col , 2, cv2.LINE_AA)
         else:
             self.hist = 0
