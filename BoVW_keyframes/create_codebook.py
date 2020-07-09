@@ -38,5 +38,5 @@ else:
 ## Create keyframes histograms
 codebook = create_codebook(img_path, des_size, hess_th, v_words)
 #np.save('../V_SLAM_fcn/codebook/histograms_b325_exp25', codebook.hist_cbook)
-np.save('../V_SLAM_fcn/codebook/tfidf_histograms_b329_arr', codebook.re_hist)
+##np.save('../V_SLAM_fcn/codebook/tfidf_histograms_b329_more_kf_test', codebook.re_hist)
 

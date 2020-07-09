@@ -7,7 +7,7 @@ from V_SLAM_fcn.bag_of_words_fcn import BoVW_comparison
 ## Point clouds
 from V_SLAM_fcn.pcl_functions import cloud_object_center
 
-bow_thres = 0.95
+bow_thres = 0.85
 
 def sample(codebook_match, online, timestamps, poses):
     ## Correct the false ids
@@ -213,6 +213,8 @@ class track_objects:
                 BoVW_match = BoVW_comparison(codebook, re_hist, des, self.img, self.disp, bbox[0], bbox[1], obj_class)
                 self.new_histograms[self.matches[0][0]] = BoVW_match.hist
 
+                if self.matches[0][0] not in self.codebook_match: self.codebook_match[self.matches[0][0]] = []
+
                 if BoVW_match.diff_match < bow_thres:
                     ## Append found match
                     self.codebook_match[self.matches[0][0]].append(BoVW_match.object)
@@ -223,8 +225,10 @@ class track_objects:
                 if self.online_flag:
                     ## center pixel of the area the object is located
                     obj_cent = [(bbox[0] + bbox[2])/2, (bbox[1] + bbox[3])/2]
+                    if self.matches[0][0] not in self.timestamps: self.timestamps[self.matches[0][0]] = []
                     self.timestamps[self.matches[0][0]].append(self.obsv_time)
                     pcl = cloud_object_center(self.dmap, obj_cent)
+                    if self.matches[0][0] not in self.poses: self.poses[self.matches[0][0]] = []
                     self.poses[self.matches[0][0]].append(pcl)
 
                 ## Put text next to the bounding box
@@ -235,6 +239,8 @@ class track_objects:
             else:
                 self.text_scene = "new object"
                 self.track_ended = True
+                self.prev_codebook_match = self.codebook_match
+                self.codebook_match = {}
                 self.id += 1
                 obj_class = names[int(det[5])]
                 label = names[int(det[5])] + '_' + str(self.id)
@@ -329,6 +335,8 @@ class track_objects:
                 BoVW_match = BoVW_comparison(codebook, re_hist, found_match_des[object], self.img, self.disp, x1y1[0], x1y1[1], obj_class)
                 self.new_histograms[object] = BoVW_match.hist
 
+                if object not in self.codebook_match: self.codebook_match[object] = []
+
                 ## Append found match
                 if BoVW_match.diff_match < bow_thres:
                     ## Append found match
@@ -340,8 +348,10 @@ class track_objects:
                 if self.online_flag:
                     ## center pixel of the area the object is located
                     obj_cent = [(x1y1[0] + x2y2[0]) / 2, (x1y1[1] + x2y2[1]) / 2]
+                    if object not in self.timestamps: self.timestamps[object] = []
                     self.timestamps[object].append(self.obsv_time)
                     pcl = cloud_object_center(self.dmap, obj_cent)
+                    if object not in self.poses: self.poses[object] = []
                     self.poses[object].append(pcl)
 
                 found_matches.append(found_match_box[object])
@@ -353,6 +363,9 @@ class track_objects:
                         bbox = [int(j) for j in det[0:4]]  ## bbox = [x1 y1 x2 y2]
 
                         if [bbox[0], bbox[1]] not in found_matches:
+                            self.track_ended = True
+                            self.prev_codebook_match = self.codebook_match
+                            self.codebook_match = {}
                             self.id += 1
                             label = names[int(det[5])] + '_' + str(self.id)
 
@@ -360,7 +373,6 @@ class track_objects:
                             kp, des, hist = track_objects.extract_features(self, bbox, codebook)
 
                             self.new_objects[label] = des
-                            self.track_ended = True
 
                             ## Bag of words frame comparison
                             BoVW_match = BoVW_comparison(codebook, re_hist, des, self.img, self.disp, bbox[0], bbox[1], obj_class)
@@ -412,6 +424,7 @@ class track_objects:
         self.new_histograms = {}
         self.codebook_match = codebook_match
         self.track_ended = False
+        self.prev_codebook_match = {}
 
         ## For running online
         self.online_flag = online_data['flag']

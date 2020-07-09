@@ -26,10 +26,10 @@ width = 640
 height = 480
 
 ## Parameters
-parameters = {"hess_th": 400, ## Hessian threshold for SURF features
+parameters = {"hess_th": 500, ## Hessian threshold for SURF features
               "lowe_ratio": 0.7, ## Lowe ratio for brute force matching
-              "match_thres": 30, ## Matching threshold for the tracker
-              "exp_pct": 0.6} ## Percentage for bounding box expansion
+              "match_thres": 40, ## Matching threshold for the tracker
+              "exp_pct": 0.5} ## Percentage for bounding box expansion
 
 online_flag = False ## Run online or from a video
 #----------------------------------------------------------------------------------#
@@ -52,7 +52,7 @@ def detect(save_img=False):
     height = 480
     fps = 30
     codec = cv2.VideoWriter_fourcc(*'XVID')
-    output_path = './test.avi'
+    output_path = './rt_kf_sampler.avi'
     out_vid_write = cv2.VideoWriter(output_path, codec, fps, (width, height))
 
     out, source, weights, view_img, save_txt, imgsz = \
@@ -110,6 +110,8 @@ def detect(save_img=False):
     old_num = 0
     codebook_match = {}
     txt = " "
+    no_det_cnt = 0
+    track_ended = False
 
     ## Main loop
     for path, img, im0s, d_map, vid_cap in dataset:
@@ -198,21 +200,44 @@ def detect(save_img=False):
 
             ## Track and sample landmarks
             if objects is not None:
+                no_det_cnt = 0
                 if first_detection:
                     id += 1
                     old_num = len(objects)
-                    im_rgb, old_objects, tracked_histograms = new_landmarks(objects, id, im0, im_rgb, parameters, codebook, names)
-
+                    im_rgb, old_objects, correct_tracked = new_landmarks(objects, id, im0, im_rgb, parameters, codebook, names)
                     first_detection = False
+                    codebook_match = {}
+                    correct_hist = {}
                 else:
-                    tracker = track_detections(old_num, parameters, im0, im_rgb, old_objects, objects, id, codebook,names, tracked_histograms)
+                    print('_____________Frame_____________')
+                    tracker = track_detections(old_num, parameters, im0, im_rgb, old_objects, objects, id, codebook,names, correct_tracked, codebook_match, correct_hist, online_data)
                     id = tracker.id
                     old_objects = tracker.old_objects
                     old_num = tracker.old_num
                     im_rgb = tracker.disp
                     tracked_histograms = tracker.tracked_histograms
+                    codebook_match = tracker.codebook_match
+
 
             else:  ## no objects in frame
+                no_det_cnt += 1
+
+                if track_ended:
+                    track_ended = False
+                    ## Sample results
+                    final_tracks = discard_tracks(tracker.tracked_histograms)
+                    # tf_idf_kf_hist = TF_IDF_reweight(final_tracks)
+                    id_pct, id_tot, txt, correct_hist, correct_tracked = sample(codebook_match, final_tracks, tracked_histograms)
+                    print('corrected')
+                    for key in correct_hist:
+                        print(key)
+                        print(correct_hist[key].shape)
+                    print('- - - - - - - - - - - - - - - - - - - - ')
+                    codebook_match = {}
+
+                if no_det_cnt == 20:
+                    track_ended = True
+
                 '''
                 if not new_scene:
                     ## Sample results
@@ -227,8 +252,6 @@ def detect(save_img=False):
                             lmk_list = landmark_pub(arranged_poses[ts], arranged_tstamps[ts], rospy.Time.from_sec(int(ts) / 1e9))
                             lmk_pub.publish(lmk_list)
                 '''
-
-                new_scene = True ## sampling finished - new_scene
 
         img2 = cv2.putText(im_rgb, txt, (0, 60), cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 0, 255), 2, cv2.LINE_AA)
 
@@ -246,10 +269,13 @@ def detect(save_img=False):
                 out_vid_write.write(img2)
 
             if cv2.waitKey(1) == ord('q'):  # q to quit
-                '''
-                ## Sample results before exiting
-                sampled_poses, sampled_tstamps, id_pct, txt = sample(codebook_match, online_flag, timestamps, poses)
 
+                ## Sample final results before exiting
+                final_tracks = discard_tracks(tracker.tracked_histograms)
+                # tf_idf_kf_hist = TF_IDF_reweight(final_tracks)
+                id_pct, id_tot, txt, correct_hist, correct_tracked = sample(codebook_match, final_tracks, tracked_histograms)
+
+                '''
                 if online_flag and id_pct > 70:  ## If running online publish landmarks list
                     arranged_poses, arranged_tstamps = serial_landmarks(sampled_poses, sampled_tstamps)
 
@@ -280,20 +306,6 @@ def detect(save_img=False):
                 #vid_writer.write(display)
 
     if save_txt or save_img:
-        ## Sample results before exiting
-        '''
-        sampled_poses, sampled_tstamps, id_pct, txt = sample(codebook_match, online_flag, timestamps, poses)
-
-        if online_flag and id_pct>70:  ## If running online publish landmarks list
-            arranged_poses, arranged_tstamps = serial_landmarks(sampled_poses, sampled_tstamps)
-
-            ## Publish landmarks
-            for ts in aranged_timestamps:
-                lmk_list = landmark_pub(arranged_poses[ts], arranged_tstamps[ts],
-                                        rospy.Time.from_sec(int(ts) / 1e9))
-                lmk_pub.publish(lmk_list)
-        '''
-
         print('Results saved to %s' % os.getcwd() + os.sep + out)
         if platform == 'darwin':  # MacOS
             os.system('open ' + save_path)
@@ -304,7 +316,7 @@ def detect(save_img=False):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', type=str, default='weights/best_yolov5x_custom_3.pt', help='model.pt path')
-    parser.add_argument('--source', type=str, default='inference/videos/329_two_classes_test_video_01.avi', help='source')  # file/folder, 0 for webcam
+    parser.add_argument('--source', type=str, default='inference/videos/329_test_video_03.avi', help='source')  # file/folder, 0 for webcam
     parser.add_argument('--output', type=str, default='inference/output/', help='output folder')  # output folder
     parser.add_argument('--img-size', type=int, default=416, help='inference size (pixels)')
     parser.add_argument('--conf-thres', type=float, default=0.85, help='object confidence threshold')

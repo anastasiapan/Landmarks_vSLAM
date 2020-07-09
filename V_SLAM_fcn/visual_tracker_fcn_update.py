@@ -7,18 +7,53 @@ from V_SLAM_fcn.bag_of_words_fcn import BoVW_comparison
 ## Point clouds
 from V_SLAM_fcn.pcl_functions import cloud_object_center
 
-bow_thres = 0.7
+min_samples = 20
+bow_thres = 80
+loop_cl_thres = 70
 
-def sample(codebook_match, online, timestamps, poses):
+def discard_tracks(finished_tracks):
+    final_tracks = dict(finished_tracks)
+    #cb_match = dict(codebook_match)
+    for key in finished_tracks:
+        if finished_tracks[key].shape[0] < min_samples:
+            del final_tracks[key]
+
+    #for match in codebook_match:
+    #    if len(codebook_match[match]) < min_samples:
+    #        del cb_match[match]
+
+    return final_tracks
+
+## TF-IDF reweighting keyframes' histograms
+def TF_IDF_reweight(kf_phrases):
+    tf_idf_kf_phrases = dict(kf_phrases)
+    for kf in kf_phrases:
+        hist_arr = kf_phrases[kf]
+        n_frames = hist_arr.shape[0]
+        nd = np.sum(hist_arr, axis=1).reshape(n_frames, 1)  # Total number of words in one frame
+        norm_h = hist_arr / nd
+
+        ## number of images that a word occurs
+        ni = np.count_nonzero(hist_arr, axis=0).astype(float)
+        div = np.divide(n_frames, ni, out=np.zeros_like(ni), where=ni != 0)
+        log_div = np.log(div, out=np.zeros_like(div), where=div != 0)
+        re_hist_arr = norm_h * log_div
+
+        tf_idf_kf_phrases[kf] = re_hist_arr
+
+    return tf_idf_kf_phrases
+
+def sample(codebook_match, histograms, tracked_histograms):
     ## Correct the false ids
     id_pct = 0
+    id_tot = 0
     txt = " "
-    unique_ids = {}
-    corrected_poses = {}
-    corrected_timestamps = {}
+    final_hist = dict(histograms)
+    correct_tracked = dict(tracked_histograms)
+    #corrected_poses = {}
+    #corrected_timestamps = {}
     for track_id in codebook_match:
-
-        if len(codebook_match[track_id]) > 20:
+        if len(codebook_match[track_id]) > min_samples:
             unique_ids = {i: codebook_match[track_id].count(i) for i in codebook_match[track_id]}
             unique_ids = sorted(unique_ids.items(), key=operator.itemgetter(1), reverse=True)
 
@@ -30,6 +65,9 @@ def sample(codebook_match, online, timestamps, poses):
                 best_pct = unique_ids[1][1]
 
             text = "I saw {} ".format(track_id) + " as {} {} ".format(best_match, best_pct) + "times!"
+
+            #np.append(tracked_histograms[track_id],
+
             print(text)
             sum_det = 0
             sum_tot = 0
@@ -38,20 +76,28 @@ def sample(codebook_match, online, timestamps, poses):
                     sum_det = sum_det + unique_ids[i][1]
                 sum_tot = sum_tot + unique_ids[i][1]
 
-
             id_pct = best_pct*100/sum_det if sum_det != 0 else 0
-            id_tot =best_pct*100/sum_tot if sum_tot != 0 else 0
+            id_tot = best_pct*100/sum_tot if sum_tot != 0 else 0
             txt = "I am {} ".format(round(id_pct)) + "% sure that I saw {}.".format(best_match)
             print(txt)
-            print("Tot: I am {} ".format(round(id_tot)) + "% sure that I saw {}.".format(best_match))
+            if best_match != 'bad_match':
+                txt = "I am {} ".format(round(id_tot)) + "% sure that I saw {}.".format(best_match)
+            else:
+                txt = ' '
             print(unique_ids)
             print("-------------------------------------------------------------------------------")
 
-            if online:
-                corrected_timestamps[best_match] = timestamps[track_id]
-                corrected_poses[best_match] = poses[track_id]
+            if id_tot > loop_cl_thres and best_match!='bad_match':
+                del final_hist[track_id]
+                final_hist[best_match] = np.append(final_hist[best_match],histograms[track_id], axis=0)
 
-    return corrected_poses, corrected_timestamps, id_pct, txt
+                del correct_tracked[track_id]
+                correct_tracked[best_match] = np.append(tracked_histograms[best_match], histograms[track_id], axis=0)
+            #if online:
+             #   corrected_timestamps[best_match] = timestamps[track_id]
+             #   corrected_poses[best_match] = poses[track_id]
+
+    return id_pct, id_tot, txt, final_hist, correct_tracked
 
 def serial_landmarks(corrected_poses, corrected_timestamps):
     ## Arange observations timewise
@@ -121,7 +167,7 @@ def new_landmarks(detections, id, img, disp, parameters, codebook, names):
         ## Put text next to the bounding box
         org = (bbox[0] + 10, bbox[1] + 20)  # org - text starting point
         txt = '{}'.format(label)
-        img = cv2.putText(disp, txt, org, cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
+        img = cv2.putText(disp, txt, org, cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 0, 255), 1, cv2.LINE_AA)
 
     return img, old_objects, tracked_histograms
 
@@ -131,21 +177,32 @@ class track_detections:
     def draw_text(self, x, y):
         ## Put text next to the bounding box
         org = (int(x + 10), int(y + 20))  # org - text starting point
-        self.disp = cv2.putText(self.disp, self.txt, org, cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
+        self.disp = cv2.putText(self.disp, self.txt, org, cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 0, 255), 1, cv2.LINE_AA)
 
         return self
 
+    ## Find SURF features in the patch
     def features_histogram(self, bbox, codebook):
         ## Find SURF features in the patch
-        patch = self.img[int(bbox[1] - self.exp_pct * bbox[1]): int(bbox[3] + self.exp_pct * bbox[3]), int(bbox[0] - self.exp_pct * bbox[0]): int(bbox[2] + self.exp_pct * bbox[2])]
+        gray = cv2.cvtColor(self.img, cv2.COLOR_BGR2GRAY)
+        mask = np.zeros(self.img.shape[:2], dtype=np.uint8)
+        ## patch [x1 y1 x2 y2]
+        patch  = [int(bbox[0] - self.exp_pct * bbox[0]), int(bbox[1] - self.exp_pct * bbox[1]), int(bbox[2] + self.exp_pct * bbox[2]), int(bbox[3] + self.exp_pct * bbox[3])]
+        cv2.rectangle(mask, (patch[0], patch[1]), (patch[2], bbox[1]), (255), thickness=-1)
+        cv2.rectangle(mask, (patch[0], bbox[1]), (bbox[0], patch[3]), (255), thickness=-1)
+        cv2.rectangle(mask, (bbox[0], bbox[3]), (patch[3], patch[3]), (255), thickness=-1)
+        cv2.rectangle(mask, (bbox[2], bbox[1]), (patch[2], bbox[3]), (255), thickness=-1)
+
+        #patch = self.img[int(bbox[1] - self.exp_pct * bbox[1]): int(bbox[3] + self.exp_pct * bbox[3]), int(bbox[0] - self.exp_pct * bbox[0]): int(bbox[2] + self.exp_pct * bbox[2])]
         surf = cv2.xfeatures2d.SURF_create(self.hessian)
-        kp, des = surf.detectAndCompute(patch, None)
+        kp, des = surf.detectAndCompute(gray, mask)
+        #kp, des = surf.detectAndCompute(patch, None)
 
         hess = self.hessian
         while des is None:
-            hess = hess - 50
             surf = cv2.xfeatures2d.SURF_create(hess)
-            kp, des = surf.detectAndCompute(patch, None)
+            kp = surf.detect(gray, mask)
+            des = surf.compute(gray, kp)
 
         ## Calculate histogram
         k = codebook.shape[0]
@@ -164,6 +221,7 @@ class track_detections:
 
         ## Find good matches - Brute force matching - Lowe ratio test
 
+    ## Track objects
     def track_features(self, hist, obj_class):
         ## Best match
         for object in self.old_objects:
@@ -184,18 +242,38 @@ class track_detections:
 
         return self
 
+    ## Search if the object is observed before
+    def loop_closure_detection(self, codebook, des, x, y, obj_class, current_obj, final_tracks):
+        if len(final_tracks) >= 1 and current_obj not in final_tracks:
+            BoVW_match = BoVW_comparison(codebook, final_tracks, des, self.img, self.disp, x, y, obj_class)
+
+            if current_obj not in self.codebook_match: self.codebook_match[current_obj] = []
+
+            if BoVW_match.cos_pct > bow_thres:
+                ## Append found match
+                self.codebook_match[current_obj].append(BoVW_match.object)
+            else:
+                self.codebook_match[current_obj].append('bad_match')
+        return self
+
+    def online_operation(self, box, obj_name):
+        obj_cent = [(box[0] + box[2])/2, (box[1] + box[3])/2]
+        if obj_name not in self.timestamps: self.timestamps[obj_name] = []
+        self.timestamps[obj_name].append(self.obsv_time)
+        pcl = cloud_object_center(self.dmap, obj_cent)
+        if obj_name not in self.poses: self.poses[obj_name] = []
+        self.poses[obj_name].append(pcl)
+
     ## Same number of objects in current and previous frame
-    def less_or_equal_objects(self, detections, names, codebook):
+    def less_or_equal_objects(self, detections, names, codebook, final_tracks):
         self.text_scene = "less or same number of objects"
         for i in range(self.new_num):
             det = detections[i].data.cpu().tolist()
             obj_class = names[int(det[5])]
             bbox = [int(j) for j in det[0:4]]  ## bbox = [x1 y1 x2 y2]
 
-            ## Find SURF features in the patch
             kp, des, hist = track_detections.features_histogram(self, bbox, codebook)
 
-            ## Calculate match to object in previous frame
             track_detections.track_features(self, hist, obj_class)
 
             ## Same objects as before
@@ -206,44 +284,45 @@ class track_detections:
 
                 self.tracked_histograms[self.tracked_objects[0][0]] = np.append(self.tracked_histograms[self.tracked_objects[0][0]], hist, axis=0)
 
-                if len(self.tracked_histograms) >= 2:
-                    BoVW_match = BoVW_comparison(codebook, self.tracked_histograms, des, self.img, self.disp, bbox[0], bbox[1], obj_class)
+                track_detections.loop_closure_detection(self, codebook, des, bbox[0], bbox[1], obj_class, self.tracked_objects[0][0], final_tracks)
 
                 ## Put text next to the bounding box
                 self.txt = '{} {}'.format(self.tracked_objects[0][0], round(self.tracked_objects[0][1]))
                 track_detections.draw_text(self, bbox[0], bbox[1])
 
+                obj_name = self.tracked_objects[0][0]
+
             ## Different objects than in previous frame
             else:
                 self.text_scene = "new object"
                 self.id += 1
+
                 label = obj_class + '_' + str(self.id)
+                obj_name = label
+                self.txt = '{} new'.format(obj_name)
+                track_detections.draw_text(self, bbox[0], bbox[1])
 
                 self.new_objects[label] = hist
 
-                #self.tracked_histograms[label] = np.empty((0,self.nbins))
                 self.tracked_histograms[label] = hist
-                #self.tracked_histograms[label] = np.append(self.tracked_histograms[label], hist, axis=0)
 
-                if len(self.tracked_histograms) >= 2:
-                    BoVW_match = BoVW_comparison(codebook, self.tracked_histograms, des, self.img, self.disp, bbox[0],
-                                                 bbox[1], obj_class)
+                track_detections.loop_closure_detection(self, codebook, des, bbox[0], bbox[1], obj_class, label, final_tracks)
 
-            self.old_objects = self.new_objects
-            self.old_num = self.new_num
+            if self.online_flag: track_detections.online_operation(self, bbox, obj_name)
 
-            return self
+        self.old_objects = self.new_objects
+        self.old_num = self.new_num
+        return self
 
 
     ## More objects in current frame
-    def more_objects(self, detections, names, codebook):
+    def more_objects(self, detections, names, codebook, final_tracks):
         self.text_scene = "more new objects"
 
         ## Check in old objects and find which of the new ones is the best match
         found_matches = []
         found_match_box = {}
         found_match_des = {}
-        found_match_box_end = {}
 
         for object in self.old_objects:
 
@@ -268,23 +347,23 @@ class track_detections:
                 ## Keep best match
                 if pct > prev_pct:
                     self.pcts[object] = pct
-                    found_match_box[object] = [bbox[0], bbox[1]]
-                    found_match_box_end[object] = [bbox[2], bbox[3]]
+                    found_match_box[object] = bbox
                     found_match_des[object] = des
                 prev_pct = pct
 
-            ## Current observation
-            self.new_objects[object] = hist
-            self.tracked_histograms[object] = np.append(self.tracked_histograms[object], hist, axis=0)
+            if object in found_match_box:
+                ## Current observation
+                self.new_objects[object] = hist
+                self.tracked_histograms[object] = np.append(self.tracked_histograms[object], hist, axis=0)
 
-            x1y1 = found_match_box[object]
-            #x2y2 = found_match_box_end[object]
-            track_detections.draw_text(self, x1y1[0], x1y1[1])
+                if self.online_flag: track_detections.online_operation(self, found_match_box[object], object)
 
-            if len(self.tracked_histograms) >= 2:
-                BoVW_match = BoVW_comparison(codebook, self.tracked_histograms, found_match_des[object], self.img, self.disp, x1y1[0], x1y1[1], obj_class)
+                box = found_match_box[object]
+                track_detections.draw_text(self, box[0], box[1])
 
-            found_matches.append(found_match_box[object])
+                track_detections.loop_closure_detection(self, codebook, found_match_des[object], box[0], box[1], obj_class, object, final_tracks)
+
+                found_matches.append(found_match_box[object])
 
             if object == list(self.old_objects.keys())[-1]:  ## last loop - last object which has a match
                 for i in range(self.new_num):  ## check which objects are left out
@@ -302,11 +381,10 @@ class track_detections:
                         self.new_objects[label] = hist
 
                         self.tracked_histograms[label] = hist
-                        #self.tracked_histograms[label] = np.empty((0,self.nbins))
-                        #np.append(self.tracked_histograms[label], hist, axis=0)
 
-                        if len(self.tracked_histograms) >= 2:
-                            BoVW_match = BoVW_comparison(codebook, self.tracked_histograms, des, self.img, self.disp, bbox[0], bbox[1], obj_class)
+                        track_detections.loop_closure_detection(self, codebook, des, bbox[0], bbox[1], obj_class, label, final_tracks)
+
+                        if self.online_flag: track_detections.online_operation(self, bbox, label)
 
                         self.txt = '{} new'.format(label)
                         track_detections.draw_text(self, bbox[0], bbox[1])
@@ -316,8 +394,7 @@ class track_detections:
 
         return self
 
-
-    def __init__(self, old_num, parameters, frame, disp, old_landmarks, detections, id, codebook, names, tracked_histograms):
+    def __init__(self, old_num, parameters, frame, disp, old_landmarks, detections, id, codebook, names, tracked_histograms, codebook_match, final_tracks, online_data):
         self.new_num = len(detections)
         self.old_num = old_num
         self.text_scene = " "
@@ -330,21 +407,21 @@ class track_detections:
         self.old_objects = old_landmarks
         self.new_objects = {}
         self.pcts = {}
-        self.matches = []
+        self.tracked_objects = []
         self.txt = " "
         self.id = id
         self.tracked_histograms = tracked_histograms
         self.nbins = codebook.shape[0]
-        #self.tracked_objects = []
+        self.codebook_match = codebook_match
 
         ## For running online
-        #self.online_flag = online_data['flag']
-        #self.obsv_time = online_data['timestamp']
-        #self.dmap = online_data['depth_map']
+        self.online_flag = online_data['flag']
+        self.obsv_time = online_data['timestamp']
+        self.dmap = online_data['depth_map']
         #self.timestamps = timestamps
         #self.poses = poses
 
         if self.new_num  <= self.old_num: ## less or same number of objects
-            track_detections.less_or_equal_objects(self, detections, names, codebook)
+            track_detections.less_or_equal_objects(self, detections, names, codebook, final_tracks)
         else: ## more objects
-            track_detections.more_objects(self, detections, names, codebook)
+            track_detections.more_objects(self, detections, names, codebook, final_tracks)

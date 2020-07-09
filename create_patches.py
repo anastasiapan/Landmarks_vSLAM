@@ -115,10 +115,11 @@ def detect(save_img=False):
                         print(label_print)
                         if names[int(cls)] == "Fire Extinguisher":
                         #if names[int(cls)] == "Cone":
+
                             det1 = det[i].data.cpu().tolist()
                             bbox = [int(j) for j in det1[0:4]]
-                            #patch = im0[int(bbox[1] - exp_pct * bbox[1]): int(bbox[3] + exp_pct * bbox[3]),int(bbox[0] - exp_pct * bbox[0]): int(bbox[2] + exp_pct * bbox[2])]
-                            patch = im0[int(bbox[1]): int(bbox[3]),int(bbox[0]): int(bbox[2])]
+                            patch = im0[int(bbox[1] - exp_pct * bbox[1]): int(bbox[3] + exp_pct * bbox[3]),int(bbox[0] - exp_pct * bbox[0]): int(bbox[2] + exp_pct * bbox[2])]
+                            #patch = im0[int(bbox[1]): int(bbox[3]),int(bbox[0]): int(bbox[2])]
 
                         i += 1
 
@@ -135,16 +136,22 @@ def detect(save_img=False):
             if save_img:
                 path = 'inference/output/'
                 if dataset.mode == 'images':## Store features
-                    if kf_num <= 8:
+                    if kf_num <= 29:
                         name = label_print + '_1p' + str(kf_num)
                         #cv2.imwrite(path + name + '.png', patch)
-                    elif kf_num > 8 and kf_num <= 20:
+                    elif kf_num > 29 and kf_num <= 41:
+                        label_print = "Fire Extinguisher"
                         name = label_print + '_1p' + str(kf_num)
                         cv2.imwrite(path + name + '.png', patch)
-                    elif kf_num > 20 and kf_num <= 28:
+                    elif kf_num > 41 and kf_num <= 55:
+                        label_print = "Fire Extinguisher"
+                        name = label_print + '_1p' + str(kf_num)
+                        cv2.imwrite(path + name + '.png', patch)
+                    elif kf_num > 55 and kf_num <= 87:
                         name = label_print + '_2p' + str(kf_num)
                         #cv2.imwrite(path + name + '.png', patch)
                     else:
+                        label_print = "Fire Extinguisher"
                         name = label_print + '_2p' + str(kf_num)
                         cv2.imwrite(path + name + '.png', patch)
 

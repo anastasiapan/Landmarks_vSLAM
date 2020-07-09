@@ -19,7 +19,7 @@ from V_SLAM_fcn.visual_tracker_fcn import *
 
 ## Load codebook and re-weighted histograms
 codebook =  np.load('./V_SLAM_fcn/codebook/Visual_Words100.npy') ## codebook
-re_hist = np.load('./V_SLAM_fcn/codebook/tfidf_histograms_b329_arr.npy', allow_pickle=True).reshape(1, 1) ## dctionary histogram
+re_hist = np.load('./V_SLAM_fcn/codebook/tfidf_histograms_b329_more_kf.npy', allow_pickle=True).reshape(1, 1) ## dctionary histogram
 re_hist = re_hist[0,0]
 
 width = 640
@@ -29,9 +29,9 @@ height = 480
 parameters = {"hess_th": 400, ## Hessian threshold for SURF features
               "lowe_ratio": 0.7, ## Lowe ratio for brute force matching
               "match_thres": 30, ## Matching threshold for the tracker
-              "exp_pct": 0.6} ## Percentage for bounding box expansion
+              "exp_pct": 0.5} ## Percentage for bounding box expansion
 
-online_flag = False ## Run online or from a video
+online_flag = True ## Run online or from a video
 #----------------------------------------------------------------------------------#
 
 ## ROS ----------------------------------------------------------------------------#
@@ -52,7 +52,7 @@ def detect(save_img=False):
     height = 480
     fps = 30
     codec = cv2.VideoWriter_fourcc(*'XVID')
-    output_path = './test.avi'
+    output_path = './329_Lowe_ratio085_online.avi'
     out_vid_write = cv2.VideoWriter(output_path, codec, fps, (width, height))
 
     out, source, weights, view_img, save_txt, imgsz = \
@@ -104,7 +104,6 @@ def detect(save_img=False):
     _ = model(img.half() if half else img) if device.type != 'cpu' else None  # run once
 
     ## Init
-    track_ended = True
     id = 0
     old_objects = {}
     old_num = 0
@@ -114,15 +113,15 @@ def detect(save_img=False):
     first_detection = True
 
     ## Main loop
-    for path, img, im0s, d_map, vid_cap in dataset:
+    for path, img, im0s, dmap, vid_cap in dataset:
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
 
-        dmap = d_map
-        if online_flag and dmap is not None:
-            d4d = np.uint8(dmap.astype(float) * 255 / 2 ** 12 - 1)  # Correct the range. Depth images are 12bits
-            d4d = 255 - cv2.cvtColor(d4d, cv2.COLOR_GRAY2RGB)
+        #dmap = d_map
+        #if online_flag and dmap is not None:
+         #   d4d = np.uint8(dmap.astype(float) * 255 / 2 ** 12 - 1)  # Correct the range. Depth images are 12bits
+          #  d4d = 255 - cv2.cvtColor(d4d, cv2.COLOR_GRAY2RGB)
 
         if img.ndimension() == 3:
             img = img.unsqueeze(0)
@@ -192,9 +191,9 @@ def detect(save_img=False):
                         obj_cent = [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2]  ## [x y] center pixel of the area the object is located
                         ## Optimal operation range: 0.6-5m
                         #print(dmap[int(obj_cent[1]), int(obj_cent[0])])
-                        im_rgb = cv2.circle(im_rgb, (int(obj_cent[0]), int(obj_cent[1])), 5, (0,255,0), -1)
-                        if online_flag: d4d = cv2.circle(d4d, (int(obj_cent[0]), int(obj_cent[1])), 5, (0,0,255), -1)
-                        if dmap[int(obj_cent[1]), int(obj_cent[0])] < 600 or dmap[int(obj_cent[1]), int(obj_cent[0])] > 5000:
+                        #im_rgb = cv2.circle(im_rgb, (int(obj_cent[0]), int(obj_cent[1])), 5, (0,255,0), -1)
+                        #if online_flag: d4d = cv2.circle(d4d, (int(obj_cent[0]), int(obj_cent[1])), 5, (0,0,255), -1)
+                        if dmap[int(obj_cent[1]), int(obj_cent[0])] < 600 or dmap[int(obj_cent[1]), int(obj_cent[0])] > 3000:
                             objects = torch.cat([objects[0:i], objects[i+1:]])
 
                 if not objects.cpu().tolist(): objects = None
@@ -204,7 +203,6 @@ def detect(save_img=False):
                 if first_detection:
                     id += 1
                     first_detection = False
-                    track_ended = False
                     old_num = len(objects)
                     im_rgb, old_objects, old_histograms, codebook_match, timestamps, poses = new_landmarks(online_data, objects, id, im0, im_rgb, parameters, codebook, re_hist, names)
 
@@ -215,6 +213,7 @@ def detect(save_img=False):
                     old_objects = tracker.old_objects
                     old_num = tracker.old_num
                     codebook_match = tracker.codebook_match
+                    prev_cb_match = tracker.prev_codebook_match
                     timestamps = tracker.timestamps
                     poses = tracker.poses
                     im_rgb = tracker.disp
@@ -222,7 +221,7 @@ def detect(save_img=False):
 
                     if track_ended:
                         ## Sample results
-                        sampled_poses, sampled_tstamps, id_pct, txt = sample(codebook_match, online_flag, timestamps,
+                        sampled_poses, sampled_tstamps, id_pct, txt = sample(prev_cb_match, online_flag, timestamps,
                                                                              poses)
 
                         if online_flag and id_pct > 70:  ## If running online publish landmarks list
@@ -234,11 +233,6 @@ def detect(save_img=False):
                                                         rospy.Time.from_sec(int(ts) / 1e9))
                                 lmk_pub.publish(lmk_list)
 
-            #else:  ## no objects in frame
-
-
-                #new_scene = True ## sampling finished - new_scene
-
         img2 = cv2.putText(im_rgb, txt, (0, 60), cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 0, 255), 2, cv2.LINE_AA)
 
         fps_disp = (fps_disp + (1. / (torch_utils.time_synchronized() - t1))) / 2
@@ -247,8 +241,8 @@ def detect(save_img=False):
         # Stream results
         if view_img or save_img:
             if online_flag:
-                display = np.hstack((d4d, img2))
-                cv2.imshow('depth || rgb', display)
+                #display = np.hstack((d4d, img2))
+                cv2.imshow('output', img2)
                 out_vid_write.write(img2)
             else:
                 cv2.imshow('output', img2)
@@ -308,7 +302,7 @@ def detect(save_img=False):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', type=str, default='weights/best_yolov5x_custom_3.pt', help='model.pt path')
-    parser.add_argument('--source', type=str, default='inference/videos/329_two_classes_test_video_01.avi', help='source')  # file/folder, 0 for webcam
+    parser.add_argument('--source', type=str, default='0', help='source')  # file/folder, 0 for webcam
     parser.add_argument('--output', type=str, default='inference/output/', help='output folder')  # output folder
     parser.add_argument('--img-size', type=int, default=416, help='inference size (pixels)')
     parser.add_argument('--conf-thres', type=float, default=0.85, help='object confidence threshold')
