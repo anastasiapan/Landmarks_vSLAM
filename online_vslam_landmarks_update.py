@@ -109,9 +109,8 @@ def detect(save_img=False):
     old_objects = {}
     old_num = 0
     codebook_match = {}
-    txt = " "
     no_det_cnt = 0
-    track_ended = False
+    txt = " "
 
     ## Main loop
     for path, img, im0s, d_map, vid_cap in dataset:
@@ -204,39 +203,39 @@ def detect(save_img=False):
                 if first_detection:
                     id += 1
                     old_num = len(objects)
-                    im_rgb, old_objects, correct_tracked = new_landmarks(objects, id, im0, im_rgb, parameters, codebook, names)
+                    im_rgb, old_objects, tracked_histograms, timestamps, poses = new_landmarks(objects, id, im0, im_rgb, parameters, codebook, names, online_data)
                     first_detection = False
                     codebook_match = {}
                     correct_hist = {}
                 else:
-                    print('_____________Frame_____________')
-                    tracker = track_detections(old_num, parameters, im0, im_rgb, old_objects, objects, id, codebook,names, correct_tracked, codebook_match, correct_hist, online_data)
+                    tracker = track_detections(old_num, parameters, im0, im_rgb, old_objects, objects, id, codebook,names, tracked_histograms, codebook_match, correct_hist, online_data, timestamps, poses)
                     id = tracker.id
                     old_objects = tracker.old_objects
                     old_num = tracker.old_num
                     im_rgb = tracker.disp
                     tracked_histograms = tracker.tracked_histograms
                     codebook_match = tracker.codebook_match
-
+                    correct_hist = tracker.keyframes_hist
+                    if hasattr(tracker, 'sampler_txt'): txt = tracker.sampler_txt
 
             else:  ## no objects in frame
                 no_det_cnt += 1
-
-                if track_ended:
-                    track_ended = False
                     ## Sample results
-                    final_tracks = discard_tracks(tracker.tracked_histograms)
+                    #final_tracks = discard_tracks(tracker.tracked_histograms)
                     # tf_idf_kf_hist = TF_IDF_reweight(final_tracks)
-                    id_pct, id_tot, txt, correct_hist, correct_tracked = sample(codebook_match, final_tracks, tracked_histograms)
-                    print('corrected')
+                    #final_tracks = correct_hist
+                    #id_pct, id_tot, txt, correct_hist, correct_tracked = sample(codebook_match, final_tracks, tracked_histograms)
+                    #print('corrected')
+                   # for key in correct_hist:
+                   #     print(key)
+                    #    print(correct_hist[key].shape)
+                    #print('- - - - - - - - - - - - - - - - - - - - ')
+                    #codebook_match = {}
+
+                if no_det_cnt == 10:
                     for key in correct_hist:
                         print(key)
                         print(correct_hist[key].shape)
-                    print('- - - - - - - - - - - - - - - - - - - - ')
-                    codebook_match = {}
-
-                if no_det_cnt == 20:
-                    track_ended = True
 
                 '''
                 if not new_scene:
