@@ -8,8 +8,8 @@ from V_SLAM_fcn.bag_of_words_fcn import BoVW_comparison
 from V_SLAM_fcn.pcl_functions import cloud_object_center
 
 min_samples = 20
-bow_thres = 80
-loop_cl_thres = 70
+bow_thres = 70
+loop_cl_thres = 75
 
 def discard_tracks(finished_tracks):
     final_tracks = dict(finished_tracks)
@@ -24,25 +24,6 @@ def discard_tracks(finished_tracks):
 
     return final_tracks
 
-## TF-IDF reweighting keyframes' histograms
-def TF_IDF_reweight(kf_phrases):
-    tf_idf_kf_phrases = dict(kf_phrases)
-    for kf in kf_phrases:
-        hist_arr = kf_phrases[kf]
-        n_frames = hist_arr.shape[0]
-        nd = np.sum(hist_arr, axis=1).reshape(n_frames, 1)  # Total number of words in one frame
-        norm_h = hist_arr / nd
-
-        ## number of images that a word occurs
-        ni = np.count_nonzero(hist_arr, axis=0).astype(float)
-        div = np.divide(n_frames, ni, out=np.zeros_like(ni), where=ni != 0)
-        log_div = np.log(div, out=np.zeros_like(div), where=div != 0)
-        re_hist_arr = norm_h * log_div
-
-        tf_idf_kf_phrases[kf] = re_hist_arr
-
-    return tf_idf_kf_phrases
-
 def sample(codebook_match, histograms, tracked_histograms, online):
     ## Correct the false ids
     id_pct = 0
@@ -50,8 +31,6 @@ def sample(codebook_match, histograms, tracked_histograms, online):
     txt = " "
     final_hist = dict(histograms)
     correct_tracked = dict(tracked_histograms)
-    corrected_poses = {}
-    corrected_timestamps = {}
     for track_id in codebook_match:
         if len(codebook_match[track_id]) > min_samples:
             unique_ids = {i: codebook_match[track_id].count(i) for i in codebook_match[track_id]}
@@ -78,7 +57,7 @@ def sample(codebook_match, histograms, tracked_histograms, online):
 
             id_pct = best_pct*100/sum_det if sum_det != 0 else 0
             id_tot = best_pct*100/sum_tot if sum_tot != 0 else 0
-            txt = "I am {} ".format(round(id_pct)) + "% sure that I saw {}.".format(best_match)
+            #txt = "I am {} ".format(round(id_pct)) + "% sure that I saw {}.".format(best_match)
 
             if best_match != 'bad_match':
                 txt = "I am {} ".format(round(id_tot)) + "% sure that I saw {}.".format(best_match)
@@ -95,11 +74,9 @@ def sample(codebook_match, histograms, tracked_histograms, online):
                 del correct_tracked[track_id]
                 correct_tracked[best_match] = np.append(tracked_histograms[best_match], histograms[track_id], axis=0)
 
-                if online:
-                    corrected_timestamps[best_match] = timestamps[track_id]
-                    corrected_poses[best_match] = poses[track_id]
+                #if online:
 
-    return id_pct, id_tot, txt, final_hist, correct_tracked, corrected_poses, corrected_timestamps
+    return id_pct, id_tot, txt, final_hist, correct_tracked
 
 def serial_landmarks(corrected_poses, corrected_timestamps):
     ## Arange observations timewise
@@ -126,9 +103,6 @@ def serial_landmarks(corrected_poses, corrected_timestamps):
 def new_landmarks(detections, id, img, disp, parameters, codebook, names, online_data):
     old_objects = {}
     tracked_histograms = {}
-
-    timestamps = {}
-    poses = {}
 
     hess_th = parameters['hess_th']
     exp_pct = parameters['exp_pct']
@@ -173,18 +147,17 @@ def new_landmarks(detections, id, img, disp, parameters, codebook, names, online
         if online_data['flag']:
             ## center pixel of the area the object is located
             obj_cent = [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2]
-            timestamps[label] = []
-            timestamps[label].append(online_data['timestamp'])
-            poses[label] = []
-            pcl = cloud_object_center(online_data['depth_map'], obj_cent)
-            poses[label].append(pcl)
+            #lmkEntry[label] = []
+            #lmkEntry[label].append(online_data['timestamp'])
+            #pcl = cloud_object_center(online_data['depth_map'], obj_cent)
+            #lmkEntry[label].append(pcl)
 
         ## Put text next to the bounding box
         org = (bbox[0] + 10, bbox[1] + 20)  # org - text starting point
         txt = '{}'.format(label)
         img = cv2.putText(disp, txt, org, cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 0, 255), 1, cv2.LINE_AA)
 
-    return img, old_objects, tracked_histograms, timestamps, poses
+    return img, old_objects, tracked_histograms
 
 class track_detections:
 
@@ -261,44 +234,44 @@ class track_detections:
     def loop_closure_detection(self, codebook, des, x, y, obj_class, current_obj):
         if current_obj not in self.old_objects:
             self.keyframes_hist = discard_tracks(self.tracked_histograms)
-            id_pct, id_tot, self.sampler_txt, correct_hist, correct_tracked, cPoses, cTimestamps = sample(self.codebook_match, self.keyframes_hist,
+
+            id_pct, id_tot, self.sampler_txt, correct_hist, correct_tracked = sample(self.codebook_match, self.keyframes_hist,
                                                                         self.tracked_histograms, self.online_flag)
-
-            if self.online_flag and id_tot > loop_cl_thres:  ## If running online publish landmarks list
-                arranged_poses, arranged_tstamps = serial_landmarks(cPoses, cTimestamps)
-
-                ## Publish landmarks
-                for ts in arranged_tstamps:
-                    lmk_list = landmark_pub(arranged_poses[ts], arranged_tstamps[ts],
-                                            rospy.Time.from_sec(int(ts) / 1e9))
-                    lmk_pub.publish(lmk_list)
-
 
             self.tracked_histograms = correct_tracked
             self.keyframes_hist = correct_hist
+
+            self.publish_flag = True
             self.codebook_match = {}
-            self.timestamps = {}
-            self.poses = {}
 
         if len(self.keyframes_hist) >= 1 and current_obj not in self.keyframes_hist:
             BoVW_match = BoVW_comparison(codebook, self.keyframes_hist, des, self.img, self.disp, x, y, obj_class)
 
             if current_obj not in self.codebook_match: self.codebook_match[current_obj] = []
+            if current_obj not in self.lmkObsv: self.lmkObsv[current_obj] = []
 
             if BoVW_match.cos_pct > bow_thres:
                 ## Append found match
                 self.codebook_match[current_obj].append(BoVW_match.object)
+                self.lmkObsv[current_obj].append(self.obsv_time)
             else:
                 self.codebook_match[current_obj].append('bad_match')
+                self.lmkObsv[current_obj].append('bad_match')
+
+        elif len(self.keyframes_hist) == 0:
+            if current_obj not in self.lmkObsv: self.lmkObsv[current_obj] = []
+            ## Append found match
+            self.lmkObsv[current_obj].append(self.obsv_time)
+
+
         return self
 
     def online_operation(self, box, obj_name):
         obj_cent = [(box[0] + box[2])/2, (box[1] + box[3])/2]
-        if obj_name not in self.timestamps: self.timestamps[obj_name] = []
-        self.timestamps[obj_name].append(self.obsv_time)
-        pcl = cloud_object_center(self.dmap, obj_cent)
-        if obj_name not in self.poses: self.poses[obj_name] = []
-        self.poses[obj_name].append(pcl)
+        #if obj_name not in self.lmkEntry: self.lmkEntry[obj_name] = []
+        #self.lmkEntry[obj_name].append(self.obsv_time)
+        #pcl = cloud_object_center(self.dmap, obj_cent)
+        #self.lmkEntry[obj_name].append(pcl)
 
     ## Same number of objects in current and previous frame
     def less_or_equal_objects(self, detections, names, codebook):
@@ -430,7 +403,7 @@ class track_detections:
 
         return self
 
-    def __init__(self, old_num, parameters, frame, disp, old_landmarks, detections, id, codebook, names, tracked_histograms, codebook_match, final_tracks, online_data, timestamps, poses):
+    def __init__(self, old_num, parameters, frame, disp, old_landmarks, detections, id, codebook, names, tracked_histograms, codebook_match, final_tracks, online_data, lmkObsv):
         self.new_num = len(detections)
         self.old_num = old_num
         self.text_scene = " "
@@ -450,13 +423,13 @@ class track_detections:
         self.nbins = codebook.shape[0]
         self.codebook_match = codebook_match
         self.keyframes_hist = final_tracks
-
+        
         ## For running online
         self.online_flag = online_data['flag']
         self.obsv_time = online_data['timestamp']
         self.dmap = online_data['depth_map']
-        self.timestamps = timestamps
-        self.poses = poses
+        self.lmkObsv = lmkObsv
+        self.publish_flag = False
 
         if self.new_num  <= self.old_num: ## less or same number of objects
             track_detections.less_or_equal_objects(self, detections, names, codebook)

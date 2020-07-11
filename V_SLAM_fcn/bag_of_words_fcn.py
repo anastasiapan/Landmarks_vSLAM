@@ -5,6 +5,29 @@ import operator
 
 lowe_thres = 0.85
 
+## TF-IDF reweighting keyframes' histograms
+def TF_IDF_reweight(kf_hist, hist):
+    #tf_idf_kf_phrases = dict(kf_phrases)
+    #for kf in kf_phrases:
+    #hist_arr = kf_phrases[kf]
+    hist_arr = np.append(kf_hist, hist, axis=0)
+    n_frames = hist_arr.shape[0]
+    nd = np.sum(hist_arr, axis=1).reshape(n_frames, 1)  # Total number of words in one frame
+    norm_h = hist_arr / nd
+
+    ## number of images that a word occurs
+    ni = np.count_nonzero(hist_arr, axis=0).astype(float)
+    div = np.divide(n_frames, ni, out=np.zeros_like(ni), where=ni != 0)
+    log_div = np.log(div, out=np.zeros_like(div), where=div != 0)
+    re_hist_arr = norm_h * log_div
+
+    last_row = re_hist_arr.shape[0]-1
+    re_hist = re_hist_arr[last_row, :]
+    re_hist_arr = re_hist_arr[0:last_row, :]
+        #tf_idf_kf_phrases[kf] = re_hist_arr
+
+    return re_hist_arr, re_hist
+
 class BoVW_comparison:
 
     def img_hist(self):
@@ -39,6 +62,7 @@ class BoVW_comparison:
             #print(keyframe_hist.shape)
             if curr_id == self.obj_class:# and keyframe_hist.shape[0] > 20:
                 #eucl_dist[key] = np.linalg.norm(self.codebook_hist[key] - self.hist)
+                #re_hist_arr, re_hist = TF_IDF_reweight(self.codebook_hist[key], self.hist)
                 dotP = np.sum(self.codebook_hist[key] * self.hist, axis=1)
                 norm = np.linalg.norm(self.hist)
                 norm_codebook = np.linalg.norm(self.codebook_hist[key], axis=1)

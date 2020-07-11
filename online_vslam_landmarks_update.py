@@ -19,8 +19,6 @@ from V_SLAM_fcn.visual_tracker_fcn_update import *
 
 ## Load codebook and re-weighted histograms
 codebook =  np.load('./V_SLAM_fcn/codebook/Visual_Words100.npy') ## codebook
-#re_hist = np.load('./V_SLAM_fcn/codebook/tfidf_histograms_b329_arr.npy', allow_pickle=True).reshape(1, 1) ## dctionary histogram
-#re_hist = re_hist[0,0]
 
 width = 640
 height = 480
@@ -109,8 +107,10 @@ def detect(save_img=False):
     old_objects = {}
     old_num = 0
     codebook_match = {}
-    no_det_cnt = 0
     txt = " "
+    correct_hist = {}
+    no_det_cnt = 0
+    min_samples = 20
 
     ## Main loop
     for path, img, im0s, d_map, vid_cap in dataset:
@@ -177,12 +177,13 @@ def detect(save_img=False):
                         plot_one_box(xyxy, im_rgb, label=label, color=(0,255,0), line_thickness=3)
 
             ## Check if any detections happen
-            objects = pred[0]
+            detections = pred[0]
+            objects = detections
             if det is not None:
                 ## number of detections:
-                num_d = len(objects)
+                num_d = len(detections)
                 for i in range(num_d):
-                    det_info = objects[i].data.cpu().tolist()
+                    det_info = detections[i].data.cpu().tolist()
                     bbox = [int(j) for j in det_info[0:4]]  ## bbox = [x1 y1 x2 y2]
 
                     ## If running online check if the object is within range
@@ -193,7 +194,7 @@ def detect(save_img=False):
                         im_rgb = cv2.circle(im_rgb, (int(obj_cent[0]), int(obj_cent[1])), 5, (0,255,0), -1)
                         if online_flag: d4d = cv2.circle(d4d, (int(obj_cent[0]), int(obj_cent[1])), 5, (0,0,255), -1)
                         if dmap[int(obj_cent[1]), int(obj_cent[0])] < 600 or dmap[int(obj_cent[1]), int(obj_cent[0])] > 5000:
-                            objects = torch.cat([objects[0:i], objects[i+1:]])
+                            objects = torch.cat([detections[0:i], detections[i+1:]])
 
                 if not objects.cpu().tolist(): objects = None
 
@@ -203,12 +204,13 @@ def detect(save_img=False):
                 if first_detection:
                     id += 1
                     old_num = len(objects)
-                    im_rgb, old_objects, tracked_histograms, timestamps, poses = new_landmarks(objects, id, im0, im_rgb, parameters, codebook, names, online_data)
+                    im_rgb, old_objects, tracked_histograms = new_landmarks(objects, id, im0, im_rgb, parameters, codebook, names, online_data)
                     first_detection = False
                     codebook_match = {}
                     correct_hist = {}
+                    lmkObsv = {}
                 else:
-                    tracker = track_detections(old_num, parameters, im0, im_rgb, old_objects, objects, id, codebook,names, tracked_histograms, codebook_match, correct_hist, online_data, timestamps, poses)
+                    tracker = track_detections(old_num, parameters, im0, im_rgb, old_objects, objects, id, codebook,names, tracked_histograms, codebook_match, correct_hist, online_data, lmkObsv)
                     id = tracker.id
                     old_objects = tracker.old_objects
                     old_num = tracker.old_num
@@ -216,41 +218,19 @@ def detect(save_img=False):
                     tracked_histograms = tracker.tracked_histograms
                     codebook_match = tracker.codebook_match
                     correct_hist = tracker.keyframes_hist
+                    lmkObsv = tracker.lmkObsv
+
+                    if tracker.publish_flag:
+                        for key in lmkObsv:
+                            if len(lmkObsv[key]) > min_samples:
+                                print(key)
+                                print('Valid to publish: {}'.format(len(lmkObsv[key])))
+
+                        lmkObsv = {}
+
+                        print('_________________________________________')
+
                     if hasattr(tracker, 'sampler_txt'): txt = tracker.sampler_txt
-
-            else:  ## no objects in frame
-                no_det_cnt += 1
-                    ## Sample results
-                    #final_tracks = discard_tracks(tracker.tracked_histograms)
-                    # tf_idf_kf_hist = TF_IDF_reweight(final_tracks)
-                    #final_tracks = correct_hist
-                    #id_pct, id_tot, txt, correct_hist, correct_tracked = sample(codebook_match, final_tracks, tracked_histograms)
-                    #print('corrected')
-                   # for key in correct_hist:
-                   #     print(key)
-                    #    print(correct_hist[key].shape)
-                    #print('- - - - - - - - - - - - - - - - - - - - ')
-                    #codebook_match = {}
-
-                if no_det_cnt == 10:
-                    for key in correct_hist:
-                        print(key)
-                        print(correct_hist[key].shape)
-
-                '''
-                if not new_scene:
-                    ## Sample results
-                    sampled_poses, sampled_tstamps, id_pct, txt = sample(codebook_match, online_flag, timestamps, poses)
-
-
-                    if online_flag and id_pct>70: ## If running online publish landmarks list
-                        arranged_poses, arranged_tstamps = serial_landmarks(sampled_poses, sampled_tstamps)
-
-                        ## Publish landmarks
-                        for ts in arranged_tstamps:
-                            lmk_list = landmark_pub(arranged_poses[ts], arranged_tstamps[ts], rospy.Time.from_sec(int(ts) / 1e9))
-                            lmk_pub.publish(lmk_list)
-                '''
 
         img2 = cv2.putText(im_rgb, txt, (0, 60), cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 0, 255), 2, cv2.LINE_AA)
 
@@ -260,31 +240,14 @@ def detect(save_img=False):
         # Stream results
         if view_img or save_img:
             if online_flag:
-                display = np.hstack((d4d, img2))
-                cv2.imshow('depth || rgb', display)
+                #display = np.hstack((d4d, img2))
+                cv2.imshow('output', img2)
                 out_vid_write.write(img2)
             else:
                 cv2.imshow('output', img2)
                 out_vid_write.write(img2)
 
             if cv2.waitKey(1) == ord('q'):  # q to quit
-
-                ## Sample final results before exiting
-                final_tracks = discard_tracks(tracker.tracked_histograms)
-                # tf_idf_kf_hist = TF_IDF_reweight(final_tracks)
-                id_pct, id_tot, txt, correct_hist, correct_tracked = sample(codebook_match, final_tracks, tracked_histograms)
-
-                '''
-                if online_flag and id_pct > 70:  ## If running online publish landmarks list
-                    arranged_poses, arranged_tstamps = serial_landmarks(sampled_poses, sampled_tstamps)
-
-                    ## Publish landmarks
-                    for ts in arranged_tstamps:
-                        lmk_list = landmark_pub(arranged_poses[ts], arranged_tstamps[ts],
-                                                rospy.Time.from_sec(int(ts) / 1e9))
-                        lmk_pub.publish(lmk_list)
-                '''
-
                 raise StopIteration
 
         # Save results (image with detections)
@@ -301,8 +264,6 @@ def detect(save_img=False):
                     w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                     h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                     vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*opt.fourcc), fps, (w, h))
-                #out = display if online_flag else img2
-                #vid_writer.write(display)
 
     if save_txt or save_img:
         print('Results saved to %s' % os.getcwd() + os.sep + out)
@@ -315,7 +276,7 @@ def detect(save_img=False):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', type=str, default='weights/best_yolov5x_custom_3.pt', help='model.pt path')
-    parser.add_argument('--source', type=str, default='inference/videos/329_test_video_03.avi', help='source')  # file/folder, 0 for webcam
+    parser.add_argument('--source', type=str, default='inference/videos/325_test.avi', help='source')  # file/folder, 0 for webcam
     parser.add_argument('--output', type=str, default='inference/output/', help='output folder')  # output folder
     parser.add_argument('--img-size', type=int, default=416, help='inference size (pixels)')
     parser.add_argument('--conf-thres', type=float, default=0.85, help='object confidence threshold')
