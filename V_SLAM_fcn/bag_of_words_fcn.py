@@ -1,9 +1,12 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 import numpy as np
 import cv2
 import operator
 
+import global_variables
+
 lowe_thres = 0.85
+codebook = global_variables.codebook
 
 ## TF-IDF reweighting keyframes' histograms
 def TF_IDF_reweight(kf_hist, hist):
@@ -32,12 +35,12 @@ class BoVW_comparison:
 
     def img_hist(self):
         ## Initializations
-        k = self.codebook.shape[0]
+        k = codebook.shape[0]
 
         num_feat = self.current_des.shape[0]  # Number of extracted features for frame to be tested
         des = np.dstack(np.split(self.current_des, num_feat))
 
-        words_stack = np.dstack([self.codebook] * num_feat)  ## stack words depthwise
+        words_stack = np.dstack([codebook] * num_feat)  ## stack words depthwise
         diff = words_stack - des
         dist = np.linalg.norm(diff, axis=1)
         idx = np.argmin(dist, axis=0)
@@ -104,8 +107,7 @@ class BoVW_comparison:
 
         return self
 
-    def __init__(self, codebook, codebook_histograms, des, frame, disp, x_txt, y_txt, object_class):
-        self.codebook = codebook
+    def __init__(self, codebook_histograms, des, frame, disp, x_txt, y_txt, object_class):
         self.codebook_hist = codebook_histograms
         self.current_des = des
         self.hist = np.empty((0,0))

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 ## Resolve cv2 and ROS conflict of python versions
 import sys
 sys.path.remove('/opt/ros/melodic/lib/python2.7/dist-packages')
@@ -16,17 +16,14 @@ import numpy as np
 
 ## Find best match
 from V_SLAM_fcn.visual_tracker_fcn_update import *
-
-## Load codebook and re-weighted histograms
-codebook =  np.load('./V_SLAM_fcn/codebook/Visual_Words100.npy') ## codebook
+import global_variables
 
 width = 640
 height = 480
 
 ## Parameters
 parameters = {"hess_th": 500, ## Hessian threshold for SURF features
-              "lowe_ratio": 0.7, ## Lowe ratio for brute force matching
-              "match_thres": 40, ## Matching threshold for the tracker
+              "match_thres": 40, ## Matching threshold percentile for the tracker
               "exp_pct": 0.5} ## Percentage for bounding box expansion
 
 online_flag = False ## Run online or from a video
@@ -92,7 +89,6 @@ def detect(save_img=False):
 
     # Get names and colors
     names = model.module.names if hasattr(model, 'module') else model.names
-    #colors = [[random.randint(0, 255) for _ in range(3)] for _ in range(len(names))]
 
     fps_disp = 0.0
 
@@ -103,7 +99,7 @@ def detect(save_img=False):
 
     ## Init
     first_detection = True
-    id = 0
+    lmk_id = 0
     old_objects = {}
     old_num = 0
     codebook_match = {}
@@ -202,16 +198,16 @@ def detect(save_img=False):
             if objects is not None:
                 no_det_cnt = 0
                 if first_detection:
-                    id += 1
+                    lmk_id += 1
                     old_num = len(objects)
-                    im_rgb, old_objects, tracked_histograms = new_landmarks(objects, id, im0, im_rgb, parameters, codebook, names, online_data)
+                    im_rgb, old_objects, tracked_histograms = new_landmarks(objects, lmk_id, im0, im_rgb, parameters, online_data, names)
                     first_detection = False
                     codebook_match = {}
                     correct_hist = {}
                     lmkObsv = {}
                 else:
-                    tracker = track_detections(old_num, parameters, im0, im_rgb, old_objects, objects, id, codebook,names, tracked_histograms, codebook_match, correct_hist, online_data, lmkObsv)
-                    id = tracker.id
+                    tracker = track_detections(old_num, parameters, im0, im_rgb, old_objects, objects, lmk_id, tracked_histograms, codebook_match, correct_hist, online_data, lmkObsv, names)
+                    lmk_id = tracker.id
                     old_objects = tracker.old_objects
                     old_num = tracker.old_num
                     im_rgb = tracker.disp
@@ -223,8 +219,7 @@ def detect(save_img=False):
                     if tracker.publish_flag:
                         for key in lmkObsv:
                             if len(lmkObsv[key]) > min_samples:
-                                print(key)
-                                print('Valid to publish: {}'.format(len(lmkObsv[key])))
+                                landmark_pub(lmkObsv, key)
 
                         lmkObsv = {}
 

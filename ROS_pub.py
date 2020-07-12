@@ -1,5 +1,4 @@
- 
-#!/usr/bin/env python
+ #!/usr/bin/env python3
 import numpy as np
 import rospy
 
@@ -8,37 +7,33 @@ frame_id = 'imu_frame'
 
 ## Transformation between camera and imu_frame
 t = np.array([0.375, 0, 0.18]).reshape(3,1)
-#rot = np.array([[0,1,0],[0,0,1],[1,0,0]])
 
-def landmark_pub(med, ids,timestamp):
+def landmark_pub(landmark_obsv, lmk_id):
     landmark_list = LandmarkList()
+    landmark = LandmarkEntry()
 
-    if len(ids) == 0:
+    landmark.id = lmk_id
+    lmk_obsv = landmark_obsv[lmk_id]
+    pose = np.asarray(lmk_obsv[1]).reshape(3,1)
+    timestamp = lmk_obsv[0]
+    # rospy.Time.from_sec(int(ts) / 1e9 if integer
 
-        landmark_list = LandmarkList(rospy.Header(stamp=timestamp, frame_id=frame_id), [])
+    ## Calculate position w.r.t. imu frame
+    landmark.tracking_from_landmark_transform.position.x = pose[2] + t[0]
+    landmark.tracking_from_landmark_transform.position.y = pose[0]
+    landmark.tracking_from_landmark_transform.position.z = pose[1] + t[2]
 
-    else:
-        for i in range(len(ids)):
-            landmark = LandmarkEntry()
-            landmark.id = ids[i]
-            pose = np.asarray(med[i]).reshape(3,1)
-            med_imu_x = pose[2] + t[0]
-            med_imu_y = pose[0]
-            med_imu_z = pose[1] + t[2]
-            landmark.tracking_from_landmark_transform.position.x = med_imu_x
-            landmark.tracking_from_landmark_transform.position.y = med_imu_y
-            landmark.tracking_from_landmark_transform.position.z = med_imu_z
+    ## Rotation - not used
+    landmark.tracking_from_landmark_transform.orientation.x = 0
+    landmark.tracking_from_landmark_transform.orientation.y = 0
+    landmark.tracking_from_landmark_transform.orientation.z = 0
+    landmark.tracking_from_landmark_transform.orientation.w = 1
 
-            landmark.tracking_from_landmark_transform.orientation.x = 0
-            landmark.tracking_from_landmark_transform.orientation.y = 0
-            landmark.tracking_from_landmark_transform.orientation.z = 0
-            landmark.tracking_from_landmark_transform.orientation.w = 1
+    landmark.translation_weight = 1.0
+    landmark.rotation_weight = 0.0
+    landmark_list.landmarks.append(landmark)
 
-            landmark.translation_weight = 1.0
-            landmark.rotation_weight = 0.0
-            landmark_list.landmarks.append(landmark)
-
-        landmark_list.header.stamp = timestamp
-        landmark_list.header.frame_id = frame_id
+    landmark_list.header.stamp = landmark_obsv
+    landmark_list.header.frame_id = frame_id
         
     return landmark_list
