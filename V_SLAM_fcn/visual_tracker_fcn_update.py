@@ -17,6 +17,7 @@ bow_thres = 70  # BoVW matching percentage threshold to declare a match for each
 loop_cl_thres = 75 # Loop closure detection -- Sampler threshold -- number of good matches/total matches
 
 codebook = global_variables.codebook
+parameters = global_variables.parameters
 
 def discard_tracks(finished_tracks):
     final_tracks = dict(finished_tracks)
@@ -80,12 +81,13 @@ def sample(codebook_match, histograms, tracked_histograms, online):
 
     return id_pct, id_tot, txt, final_hist, correct_tracked
 
-def new_landmarks(detections, id, img, disp, parameters, online_data, names):
+def new_landmarks(detections, id, img, disp, online_data, names):
     old_objects = {}
     tracked_histograms = {}
 
     hess_th = parameters['hess_th']
     exp_pct = parameters['exp_pct']
+    
     for i in range(len(detections)):
         det = detections[i].data.cpu().tolist()
         obj_class = names[int(det[5])]
@@ -376,7 +378,7 @@ class track_detections:
 
         return self
 
-    def __init__(self, old_num, parameters, frame, disp, old_landmarks, detections, lmk_id, tracked_histograms, codebook_match, final_tracks, online_data, lmkObsv, names):
+    def __init__(self, old_num, frame, disp, old_landmarks, detections, lmk_id, tracked_histograms, codebook_match, final_tracks, online_data, lmkObsv, names):
         self.new_num = len(detections)
         self.old_num = old_num
         self.hessian = parameters['hess_th']

@@ -21,15 +21,10 @@ import global_variables
 width = 640
 height = 480
 
-## Parameters
-parameters = {"hess_th": 500, ## Hessian threshold for SURF features
-              "match_thres": 40, ## Matching threshold percentile for the tracker
-              "exp_pct": 0.5} ## Percentage for bounding box expansion
-
 online_flag = False ## Run online or from a video
 #----------------------------------------------------------------------------------#
 
-## ROS ----------------------------------------------------------------------------#
+## ROS landmark publisher ---------------------------------------------------------#
 if online_flag:
     sys.path.append('/opt/ros/melodic/lib/python2.7/dist-packages')
     import rospy
@@ -43,8 +38,6 @@ if online_flag:
 
 def detect(save_img=False):
     ## Writing output video
-    width = 640
-    height = 480
     fps = 30
     codec = cv2.VideoWriter_fourcc(*'XVID')
     output_path = './rt_kf_sampler.avi'
@@ -200,13 +193,13 @@ def detect(save_img=False):
                 if first_detection:
                     lmk_id += 1
                     old_num = len(objects)
-                    im_rgb, old_objects, tracked_histograms = new_landmarks(objects, lmk_id, im0, im_rgb, parameters, online_data, names)
+                    im_rgb, old_objects, tracked_histograms = new_landmarks(objects, lmk_id, im0, im_rgb, online_data, names)
                     first_detection = False
                     codebook_match = {}
                     correct_hist = {}
                     lmkObsv = {}
                 else:
-                    tracker = track_detections(old_num, parameters, im0, im_rgb, old_objects, objects, lmk_id, tracked_histograms, codebook_match, correct_hist, online_data, lmkObsv, names)
+                    tracker = track_detections(old_num,  im0, im_rgb, old_objects, objects, lmk_id, tracked_histograms, codebook_match, correct_hist, online_data, lmkObsv, names)
                     lmk_id = tracker.id
                     old_objects = tracker.old_objects
                     old_num = tracker.old_num
