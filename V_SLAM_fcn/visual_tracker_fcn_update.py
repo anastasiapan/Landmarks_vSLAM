@@ -1,7 +1,8 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 import numpy as np
 import cv2
 import operator
+from itertools import groupby
 
 ## Bag of Visual Words
 from V_SLAM_fcn.bag_of_words_fcn import BoVW_comparison
@@ -84,6 +85,7 @@ def sample(codebook_match, histograms, tracked_histograms, online):
 def new_landmarks(detections, id, img, disp, online_data, names):
     old_objects = {}
     tracked_histograms = {}
+    lmkObsv = {}
 
     hess_th = parameters['hess_th']
     exp_pct = parameters['exp_pct']
@@ -95,15 +97,24 @@ def new_landmarks(detections, id, img, disp, online_data, names):
 
         bbox = [int(j) for j in det[0:4]]  ## bbox = [x1 y1 x2 y2]
 
-        ## Find ORB features in the patch
-        patch = img[int(bbox[1] - exp_pct * bbox[1]) : int(bbox[3] + exp_pct * bbox[3]), int(bbox[0] - exp_pct * bbox[0]) : int(bbox[2] + exp_pct * bbox[2])]
-        surf = cv2.xfeatures2d.SURF_create(hess_th)
-        kp, des = surf.detectAndCompute(patch, None)
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        mask = np.zeros(img.shape[:2], dtype=np.uint8)
+        ## patch [x1 y1 x2 y2]
+        patch  = [int(bbox[0] - exp_pct * bbox[0]), int(bbox[1] - exp_pct * bbox[1]), int(bbox[2] + exp_pct * bbox[2]), int(bbox[3] + exp_pct * bbox[3])]
+        cv2.rectangle(mask, (patch[0], patch[1]), (patch[2], bbox[1]), (255), thickness=-1)
+        cv2.rectangle(mask, (patch[0], bbox[1]), (bbox[0], patch[3]), (255), thickness=-1)
+        cv2.rectangle(mask, (bbox[0], bbox[3]), (patch[3], patch[3]), (255), thickness=-1)
+        cv2.rectangle(mask, (bbox[2], bbox[1]), (patch[2], bbox[3]), (255), thickness=-1)
 
+        surf = cv2.xfeatures2d.SURF_create(hess_th)
+        kp, des = surf.detectAndCompute(gray, mask)
+
+        hess = hess_th
         while des is None:
             hess_th = hess_th - 50
             surf = cv2.xfeatures2d.SURF_create(hess)
-            kp, des = surf.detectAndCompute(patch, None)
+            kp = surf.detect(gray, mask)
+            des = surf.compute(gray, kp)
 
         ## Calculate histogram
         k = codebook.shape[0]
@@ -128,17 +139,16 @@ def new_landmarks(detections, id, img, disp, online_data, names):
         if online_data['flag']:
             ## center pixel of the area the object is located
             obj_cent = [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2]
-            #lmkEntry[label] = []
-            #lmkEntry[label].append(online_data['timestamp'])
-            #pcl = cloud_object_center(online_data['depth_map'], obj_cent)
-            #lmkEntry[label].append(pcl)
+            pcl = cloud_object_center(online_data['depth_map'], obj_cent)
+            lmkEntry = (online_data['timestamp'], pcl)
+            lmkObsv[label] = lmkEntry
 
         ## Put text next to the bounding box
         org = (bbox[0] + 10, bbox[1] + 20)  # org - text starting point
         txt = '{}'.format(label)
         img = cv2.putText(disp, txt, org, cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 0, 255), 1, cv2.LINE_AA)
 
-    return img, old_objects, tracked_histograms
+    return img, old_objects, tracked_histograms, lmkObsv
 
 class track_detections:
 
@@ -167,6 +177,7 @@ class track_detections:
 
         hess = self.hessian
         while des is None:
+            hess = hess - 50
             surf = cv2.xfeatures2d.SURF_create(hess)
             kp = surf.detect(gray, mask)
             des = surf.compute(gray, kp)
@@ -253,7 +264,9 @@ class track_detections:
 
     ## Same number of objects in current and previous frame
     def less_or_equal_objects(self, detections, names):
-        for i in range(self.new_num):
+        match_to_prev = []
+        test = []
+        for i in range(self.new_num):           
             det = detections[i].data.cpu().tolist()
             obj_class = names[int(det[5])]
             bbox = [int(j) for j in det[0:4]]  ## bbox = [x1 y1 x2 y2]
@@ -261,123 +274,40 @@ class track_detections:
             kp, des, hist = track_detections.features_histogram(self, bbox)
 
             track_detections.track_features(self, hist, obj_class)
+            best_match_obj = self.tracked_objects[0][0]
+            best_match_pct = self.tracked_objects[0][1]
 
-            ## Same objects as before
-            if self.tracked_objects[0][1] > self.match_thres:  ## check if the match is valid
+            match_to_prev.append((best_match_obj,best_match_pct, bbox, hist, des, obj_class))
+            test.append((best_match_obj,best_match_pct, bbox, obj_class))
+         
+        sorted_matches = ([max(pct) for lmk_id, pct in groupby(match_to_prev, lambda y: y[0])])   
 
-                ## Current observation
-                self.new_objects[self.tracked_objects[0][0]] = hist
-
-                self.tracked_histograms[self.tracked_objects[0][0]] = np.append(self.tracked_histograms[self.tracked_objects[0][0]], hist, axis=0)
-
-                track_detections.loop_closure_detection(self, des, bbox, obj_class, self.tracked_objects[0][0])
-
-                ## Put text next to the bounding box
-                self.txt = '{} {}'.format(self.tracked_objects[0][0], round(self.tracked_objects[0][1]))
-                track_detections.draw_text(self, bbox[0], bbox[1])
-
-                obj_name = self.tracked_objects[0][0]
-
-            ## Different objects than in previous frame
+        tracks = []
+        for i, det in enumerate(match_to_prev):
+            (best_match_obj,best_match_pct, bbox, hist, des, obj_class) = det
+            valid_track = best_match_pct > self.match_thres
+            if det in sorted_matches and valid_track:
+                tracks.append(det)
             else:
                 self.id += 1
-
                 label = obj_class + '_' + str(self.id)
-                obj_name = label
-                self.txt = '{} new'.format(obj_name)
-                track_detections.draw_text(self, bbox[0], bbox[1])
+                self.tracked_histograms[label] = np.empty((0, hist.shape[1]))
+                tracks.append((label,best_match_pct, bbox, hist, des, obj_class))
 
-                self.new_objects[label] = hist
+        for det in tracks:
+            (label,track_pct, bbox, hist, des, obj_class) = det 
 
-                self.tracked_histograms[label] = hist
-
-                track_detections.loop_closure_detection(self, des, bbox, obj_class, label)
-
-            if self.online_flag: track_detections.online_operation(self, bbox, obj_name)
-
-        self.old_objects = self.new_objects
-        self.old_num = self.new_num
-        return self
-
-
-    ## More objects in current frame
-    def more_objects(self, detections,names):
-
-        ## Check in old objects and find which of the new ones is the best match
-        found_matches = []
-        found_match_box = {}
-        found_match_des = {}
-
-        for object in self.old_objects:
-
-            prev_pct = self.match_thres
-            obj_class = object.split('_')
-            obj_class = obj_class[0]
-
-            for i in range(self.new_num):
-                det = detections[i].data.cpu().tolist()
-                #obj_class = names[int(det[5])]
-                bbox = [int(j) for j in det[0:4]]  ## bbox = [x1 y1 x2 y2]
-
-                ## Find SURF features in the patch
-                kp, des, hist = track_detections.features_histogram(self, bbox)
-
-                ## BF matcher - Find the best match in the current frame
-                dotP = np.sum(self.old_objects[object] * hist)
-                norm = np.linalg.norm(hist)
-                norm_codebook = np.linalg.norm(self.old_objects[object])
-                pct = dotP * 100 / (norm * norm_codebook)
-
-                ## Keep best match
-                if pct > prev_pct:
-                    self.pcts[object] = pct
-                    found_match_box[object] = bbox
-                    found_match_des[object] = des
-                prev_pct = pct
-
-            if object in found_match_box:
-                ## Current observation
-                self.new_objects[object] = hist
-                self.tracked_histograms[object] = np.append(self.tracked_histograms[object], hist, axis=0)
-
-                if self.online_flag: track_detections.online_operation(self, found_match_box[object], object)
-
-                box = found_match_box[object]
-                track_detections.draw_text(self, box[0], box[1])
-
-                track_detections.loop_closure_detection(self, found_match_des[object], box, obj_class, object)
-
-                found_matches.append(found_match_box[object])
-
-            if object == list(self.old_objects.keys())[-1]:  ## last loop - last object which has a match
-                for i in range(self.new_num):  ## check which objects are left out
-                    det = detections[i].data.cpu().tolist()
-                    obj_class = names[int(det[5])]
-                    bbox = [int(j) for j in det[0:4]]  ## bbox = [x1 y1 x2 y2]
-
-                    if [bbox[0], bbox[1]] not in found_matches:
-                        self.id += 1
-                        label = obj_class + '_' + str(self.id)
-
-                        ## Find SURF features in the patch
-                        kp, des, hist = track_detections.features_histogram(self, bbox)
-
-                        self.new_objects[label] = hist
-
-                        self.tracked_histograms[label] = hist
-
-                        track_detections.loop_closure_detection(self, des, bbox, obj_class, label)
-
-                        if self.online_flag: track_detections.online_operation(self, bbox, label)
-
-                        self.txt = '{} new'.format(label)
-                        track_detections.draw_text(self, bbox[0], bbox[1])
-
+            self.tracked_histograms[label] = np.append(self.tracked_histograms[label], hist, axis=0)   
+            self.txt = '{} {}'.format(label, round(track_pct))   
+            track_detections.draw_text(self, bbox[0], bbox[1])
+            self.new_objects[label] = hist
+            track_detections.loop_closure_detection(self, des, bbox, obj_class, label)           
+            
         self.old_objects = self.new_objects
         self.old_num = self.new_num
 
         return self
-
+   
     def __init__(self, old_num, frame, disp, old_landmarks, detections, lmk_id, tracked_histograms, codebook_match, final_tracks, online_data, lmkObsv, names):
         self.new_num = len(detections)
         self.old_num = old_num
@@ -404,7 +334,4 @@ class track_detections:
         self.lmkObsv = lmkObsv
         self.publish_flag = False
 
-        if self.new_num  <= self.old_num: ## less or same number of objects
-            track_detections.less_or_equal_objects(self, detections,names)
-        else: ## more objects
-            track_detections.more_objects(self, detections, names)
+        track_detections.less_or_equal_objects(self, detections,names)

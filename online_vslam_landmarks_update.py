@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 ## Resolve cv2 and ROS conflict of python versions
 import sys
 sys.path.remove('/opt/ros/melodic/lib/python2.7/dist-packages')
@@ -193,11 +193,10 @@ def detect(save_img=False):
                 if first_detection:
                     lmk_id += 1
                     old_num = len(objects)
-                    im_rgb, old_objects, tracked_histograms = new_landmarks(objects, lmk_id, im0, im_rgb, online_data, names)
+                    im_rgb, old_objects, tracked_histograms,  lmkObsv = new_landmarks(objects, lmk_id, im0, im_rgb, online_data, names)
                     first_detection = False
                     codebook_match = {}
                     correct_hist = {}
-                    lmkObsv = {}
                 else:
                     tracker = track_detections(old_num,  im0, im_rgb, old_objects, objects, lmk_id, tracked_histograms, codebook_match, correct_hist, online_data, lmkObsv, names)
                     lmk_id = tracker.id
