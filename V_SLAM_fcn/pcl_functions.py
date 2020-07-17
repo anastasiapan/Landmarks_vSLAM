@@ -1,5 +1,4 @@
- 
-#!/usr/bin/env python
+ #!/usr/bin/env python
 import numpy as np
 
 def depth_to_cloud(dmap, height, width):

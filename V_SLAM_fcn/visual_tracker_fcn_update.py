@@ -9,6 +9,7 @@ from V_SLAM_fcn.bag_of_words_fcn import BoVW_comparison
 
 ## Point clouds
 from V_SLAM_fcn.pcl_functions import cloud_object_center
+from V_SLAM_fcn.robot_global_pose import *
 
 import global_variables
 
@@ -28,13 +29,14 @@ def discard_tracks(finished_tracks):
 
     return final_tracks
 
-def sample(codebook_match, histograms, tracked_histograms, online):
+def sample(codebook_match, histograms, tracked_histograms, online, lmkObsv):
     ## Correct the false ids
     id_pct = 0
     id_tot = 0
     txt = " "
     final_hist = dict(histograms)
     correct_tracked = dict(tracked_histograms)
+    lmk_correct = dict(lmkObsv)
     for track_id in codebook_match:
         if len(codebook_match[track_id]) > min_samples:
             unique_ids = {i: codebook_match[track_id].count(i) for i in codebook_match[track_id]}
@@ -78,9 +80,11 @@ def sample(codebook_match, histograms, tracked_histograms, online):
                 del correct_tracked[track_id]
                 correct_tracked[best_match] = np.append(tracked_histograms[best_match], histograms[track_id], axis=0)
 
-                #if online:
+                if online:
+                    del lmk_correct[track_id]
+                    lmk_correct[best_match] = lmkObsv[track_id]
 
-    return id_pct, id_tot, txt, final_hist, correct_tracked
+    return id_pct, id_tot, txt, final_hist, correct_tracked, lmk_correct
 
 def new_landmarks(detections, id, img, disp, online_data, names):
     old_objects = {}
@@ -140,8 +144,11 @@ def new_landmarks(detections, id, img, disp, online_data, names):
             ## center pixel of the area the object is located
             obj_cent = [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2]
             pcl = cloud_object_center(online_data['depth_map'], obj_cent)
-            lmkEntry = (online_data['timestamp'], pcl)
-            lmkObsv[label] = lmkEntry
+            valid_transformation = online_data['robot_global_pose'].size != 0
+            lmk_global_pose = np.dot(online_data['robot_global_pose'],np.array(pcl).reshape(3,1)) if valid_transformation else np.zeros((3,1))
+            lmkEntry = (online_data['timestamp'], pcl, lmk_global_pose)
+            lmkObsv[label] = []
+            lmkObsv[label].append(lmkEntry)
 
         ## Put text next to the bounding box
         org = (bbox[0] + 10, bbox[1] + 20)  # org - text starting point
@@ -225,12 +232,13 @@ class track_detections:
         if current_obj not in self.old_objects:
             self.keyframes_hist = discard_tracks(self.tracked_histograms)
 
-            id_pct, id_tot, self.sampler_txt, correct_hist, correct_tracked = sample(self.codebook_match, self.keyframes_hist,
-                                                                        self.tracked_histograms, self.online_flag)
+            id_pct, id_tot, self.sampler_txt, correct_hist, correct_tracked, lmk_correct = sample(self.codebook_match, self.keyframes_hist,
+                                                                        self.tracked_histograms, self.online_flag, self.lmkObsv)
 
             self.tracked_histograms = correct_tracked
             self.keyframes_hist = correct_hist
 
+            self.lmkObsv = lmk_correct
             self.publish_flag = True
             self.codebook_match = {}
 
@@ -243,22 +251,29 @@ class track_detections:
             if BoVW_match.cos_pct > bow_thres:
                 ## Append found match
                 self.codebook_match[current_obj].append(BoVW_match.object)
-                if self.online_flag: self.lmkObsv[current_obj].append(track_detections.online_operation(box))
+                if self.online_flag: self.lmkObsv[current_obj].append(track_detections.online_operation(self,box))
+                    #if BoVW_match.object not in self.lmkObsv: self.lmkObsv[BoVW_match.object] = []
+                    #self.lmkObsv[BoVW_match.object].append(track_detections.online_operation(self,box))
             else:
                 self.codebook_match[current_obj].append('bad_match')
-                if self.online_flag: self.lmkObsv[current_obj].append('bad_match')
+                if self.online_flag: self.lmkObsv[current_obj].append(track_detections.online_operation(self,box))
 
         elif len(self.keyframes_hist) == 0 and self.online_flag:
             if current_obj not in self.lmkObsv: self.lmkObsv[current_obj] = []
             ## Append found match
-            self.lmkObsv[current_obj].append(track_detections.online_operation(box))
+            self.lmkObsv[current_obj].append(track_detections.online_operation(self,box))
 
         return self
 
     def online_operation(self, box):
         obj_cent = [(box[0] + box[2])/2, (box[1] + box[3])/2]
         pcl = cloud_object_center(self.dmap, obj_cent)
-        lmkEntry = (self.obsv_time, pcl)
+        valid_transformation = self.robot_gtrans.size != 0
+        x = pcl[2] + global_variables.T_cam_imu[0,0]
+        y = pcl[0] + global_variables.T_cam_imu[2,0]
+        pose = [x,y,1]
+        lmk_global_pose = np.dot(self.robot_gtrans,np.array(pose).reshape(3,1)) if valid_transformation else np.zeros((3,1))
+        lmkEntry = (self.obsv_time, pcl, lmk_global_pose)
         
         return lmkEntry
 
@@ -331,6 +346,7 @@ class track_detections:
         self.online_flag = online_data['flag']
         self.obsv_time = online_data['timestamp']
         self.dmap = online_data['depth_map']
+        self.robot_gtrans = online_data['robot_global_pose']
         self.lmkObsv = lmkObsv
         self.publish_flag = False
 

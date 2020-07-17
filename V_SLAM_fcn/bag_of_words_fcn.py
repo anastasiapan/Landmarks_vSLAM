@@ -66,6 +66,9 @@ class BoVW_comparison:
             if curr_id == self.obj_class:# and keyframe_hist.shape[0] > 20:
                 #eucl_dist[key] = np.linalg.norm(self.codebook_hist[key] - self.hist)
                 #re_hist_arr, re_hist = TF_IDF_reweight(self.codebook_hist[key], self.hist)
+                #dotP = np.sum(re_hist_arr * re_hist, axis=1)
+                #norm = np.linalg.norm(re_hist)
+                #norm_codebook = np.linalg.norm(re_hist_arr, axis=1)
                 dotP = np.sum(self.codebook_hist[key] * self.hist, axis=1)
                 norm = np.linalg.norm(self.hist)
                 norm_codebook = np.linalg.norm(self.codebook_hist[key], axis=1)

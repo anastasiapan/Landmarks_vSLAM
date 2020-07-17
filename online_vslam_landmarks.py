@@ -37,13 +37,22 @@ online_flag = True ## Run online or from a video
 ## ROS ----------------------------------------------------------------------------#
 if online_flag:
     sys.path.append('/opt/ros/melodic/lib/python2.7/dist-packages')
+    import roslib
     import rospy
+    import math
+    import tf
+    import geometry_msgs.msg
     from cartographer_ros_msgs.msg import LandmarkEntry, LandmarkList
     from ROS_pub import landmark_pub
     TOPIC = '/v_landmarks'
-    ## ROS publisher
+    ## ROS landmark publisher node
     rospy.init_node('landmark_publisher', anonymous=True)
     lmk_pub = rospy.Publisher(TOPIC, LandmarkList, queue_size=1000)
+    ## robot global pose listener node
+    rospy.init_node('robot_global_pose')
+    global_pose_listener = tf.TransformListener()
+    #rate = rospy.Rate(10.0)
+    
 #----------------------------------------------------------------------------------#
 
 def detect(save_img=False):
@@ -189,10 +198,7 @@ def detect(save_img=False):
                     ## If running online check if the object is within range
                     if online_flag:
                         obj_cent = [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2]  ## [x y] center pixel of the area the object is located
-                        ## Optimal operation range: 0.6-5m
-                        #print(dmap[int(obj_cent[1]), int(obj_cent[0])])
-                        #im_rgb = cv2.circle(im_rgb, (int(obj_cent[0]), int(obj_cent[1])), 5, (0,255,0), -1)
-                        #if online_flag: d4d = cv2.circle(d4d, (int(obj_cent[0]), int(obj_cent[1])), 5, (0,0,255), -1)
+                        ## Optimal operation range: 0.6-3m
                         if dmap[int(obj_cent[1]), int(obj_cent[0])] < 600 or dmap[int(obj_cent[1]), int(obj_cent[0])] > 3000:
                             objects = torch.cat([objects[0:i], objects[i+1:]])
 

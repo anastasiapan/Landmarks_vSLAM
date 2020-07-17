@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 ## Resolve cv2 and ROS conflict of python versions
-import sys
-sys.path.remove('/opt/ros/melodic/lib/python2.7/dist-packages')
+#import sys
+#sys.path.remove('/opt/ros/melodic/lib/python2.7/dist-packages')
 import cv2
 import argparse
 
@@ -16,24 +16,29 @@ import numpy as np
 
 ## Find best match
 from V_SLAM_fcn.visual_tracker_fcn_update import *
+from V_SLAM_fcn.robot_global_pose import *
 import global_variables
 
 width = 640
 height = 480
 
-online_flag = False ## Run online or from a video
+online_flag = True ## Run online or from a video
 #----------------------------------------------------------------------------------#
 
 ## ROS landmark publisher ---------------------------------------------------------#
 if online_flag:
-    sys.path.append('/opt/ros/melodic/lib/python2.7/dist-packages')
+    #sys.path.append('/opt/ros/melodic/lib/python2.7/dist-packages')
     import rospy
     from cartographer_ros_msgs.msg import LandmarkEntry, LandmarkList
-    from ROS_pub import landmark_pub
+    from ROS_pub import *
     TOPIC = '/v_landmarks'
-    ## ROS publisher
+    ## ROS landmark publisher node
     rospy.init_node('landmark_publisher', anonymous=True)
     lmk_pub = rospy.Publisher(TOPIC, LandmarkList, queue_size=1000)
+    ## robot global pose listener node
+    #rospy.init_node('robot_global_pose')
+    #global_pose_listener = tf.TransformListener()
+    #rate = rospy.Rate(10.0)
 #----------------------------------------------------------------------------------#
 
 def detect(save_img=False):
@@ -98,8 +103,10 @@ def detect(save_img=False):
     codebook_match = {}
     txt = " "
     correct_hist = {}
-    no_det_cnt = 0
     min_samples = 20
+    rbt_glb_pose = robot_global_pose() ## robot global pose
+    lmk_gb = np.zeros((3,1))
+    lmk_obsv_poses = {}
 
     ## Main loop
     for path, img, im0s, d_map, vid_cap in dataset:
@@ -111,15 +118,17 @@ def detect(save_img=False):
         if online_flag and dmap is not None:
             d4d = np.uint8(dmap.astype(float) * 255 / 2 ** 12 - 1)  # Correct the range. Depth images are 12bits
             d4d = 255 - cv2.cvtColor(d4d, cv2.COLOR_GRAY2RGB)
+            timestamp = rospy.Time.now()
+            rbt_glb_pose.trans_mat()
 
         if img.ndimension() == 3:
             img = img.unsqueeze(0)
 
         ## Online operation data
         online_data = {'flag': online_flag,
-                       'timestamp': 0 if not online_flag else rospy.Time.now(),
-                       'depth_map': 0 if not online_flag else dmap}
-
+                       'timestamp': 0 if not online_flag else timestamp,
+                       'depth_map': 0 if not online_flag else dmap,
+                       'robot_global_pose': 0 if not online_flag else rbt_glb_pose.trans}
         # Inference
         t1 = torch_utils.time_synchronized()
         pred = model(img, augment=opt.augment)[0]
@@ -182,14 +191,13 @@ def detect(save_img=False):
                         #print(dmap[int(obj_cent[1]), int(obj_cent[0])])
                         im_rgb = cv2.circle(im_rgb, (int(obj_cent[0]), int(obj_cent[1])), 5, (0,255,0), -1)
                         if online_flag: d4d = cv2.circle(d4d, (int(obj_cent[0]), int(obj_cent[1])), 5, (0,0,255), -1)
-                        if dmap[int(obj_cent[1]), int(obj_cent[0])] < 600 or dmap[int(obj_cent[1]), int(obj_cent[0])] > 5000:
+                        if dmap[int(obj_cent[1]), int(obj_cent[0])] < 600 or dmap[int(obj_cent[1]), int(obj_cent[0])] > 3500:
                             objects = torch.cat([detections[0:i], detections[i+1:]])
 
                 if not objects.cpu().tolist(): objects = None
 
             ## Track and sample landmarks
             if objects is not None:
-                no_det_cnt = 0
                 if first_detection:
                     lmk_id += 1
                     old_num = len(objects)
@@ -209,13 +217,60 @@ def detect(save_img=False):
                     lmkObsv = tracker.lmkObsv
 
                     if tracker.publish_flag:
+                        lmk_copy = dict(lmkObsv)
+                        keyframes_copy = dict(correct_hist)
+                        tracked_hists = dict(tracked_histograms)
                         for key in lmkObsv:
                             if len(lmkObsv[key]) > min_samples:
-                                landmark_pub(lmkObsv, key)
+                                #print(key)
+                                lmk = lmkObsv[key]
+                                gpose = np.array(list(map(operator.itemgetter(2), lmk)))
+                                gpose = gpose[:,:,0].transpose()
+                                gpose = np.true_divide(gpose.sum(1),(gpose!=0).sum(1)).reshape(3,1)
+                                print('- - - - - -- - -- - - - - -- - - - -- - - ')
+                                print('I saw ' + key + ' with a global pose of:')
+                                print(gpose)
+                                in_area, occupied = spatial_filter(lmk_obsv_poses, gpose, key)
+
+                                if in_area and not occupied:
+                                    print('Valid observation - in range - unoccupied space')
+                                    for i in range(len(lmk)):
+                                        lmk_gpose = lmk[i][2]
+                                        lmk_list = landmark_pub(lmk[i], key)
+                                        lmk_pub.publish(lmk_list)
+
+                                    lmk_obsv_poses[key] = gpose
+                                elif not in_area and not occupied:
+                                    print('Mismatch - new observation - out of range - unoccupied space')
+                                    new_id = key.split('_')
+                                    lmk_id += 1
+                                    new_id = new_id[0] + '_' + str(lmk_id)
+                                    for i in range(len(lmk)):
+                                        lmk_gpose = lmk[i][2]
+                                        lmk_list = landmark_pub(lmk[i], new_id)
+                                        lmk_pub.publish(lmk_list)
+
+                                    lmk_obsv_poses[new_id] = gpose
+
+                                    del lmk_copy[key]
+                                    del keyframes_copy[key]
+                                    del tracked_hists[key]
+                                    lmk_copy[new_id] = lmkObsv[key]
+                                    keyframes_copy[new_id] = correct_hist[key]
+                                    tracked_hists[new_id] = tracked_histograms[key]
+
+                                else:
+                                    print('out of range - there is a landmark already there - IGNORE')
+                                    del lmk_copy[key]
+                                    del keyframes_copy[key]
+                                    del tracked_histograms[key]
+                                print('- - - - - -- - -- - - - - -- - - - -- - - ')
+                        
+                        lmkObsv = lmk_copy
+                        correct_hist = keyframes_copy
+                        tracked_histograms = tracked_hists
 
                         lmkObsv = {}
-
-                        print('_________________________________________')
 
                     if hasattr(tracker, 'sampler_txt'): txt = tracker.sampler_txt
 
@@ -263,7 +318,7 @@ def detect(save_img=False):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', type=str, default='weights/best_yolov5x_custom_3.pt', help='model.pt path')
-    parser.add_argument('--source', type=str, default='inference/videos/325_test.avi', help='source')  # file/folder, 0 for webcam
+    parser.add_argument('--source', type=str, default='0', help='source')  # file/folder, 0 for webcam
     parser.add_argument('--output', type=str, default='inference/output/', help='output folder')  # output folder
     parser.add_argument('--img-size', type=int, default=416, help='inference size (pixels)')
     parser.add_argument('--conf-thres', type=float, default=0.85, help='object confidence threshold')
