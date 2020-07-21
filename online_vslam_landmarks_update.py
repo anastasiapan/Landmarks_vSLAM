@@ -16,8 +16,8 @@ import numpy as np
 
 ## Find best match
 from V_SLAM_fcn.visual_tracker_fcn_update import *
-from V_SLAM_fcn.robot_global_pose import *
-import global_variables
+from V_SLAM_fcn.ros_subscribers import *
+import parameters
 
 width = 640
 height = 480
@@ -35,10 +35,6 @@ if online_flag:
     ## ROS landmark publisher node
     rospy.init_node('landmark_publisher', anonymous=True)
     lmk_pub = rospy.Publisher(TOPIC, LandmarkList, queue_size=1000)
-    ## robot global pose listener node
-    #rospy.init_node('robot_global_pose')
-    #global_pose_listener = tf.TransformListener()
-    #rate = rospy.Rate(10.0)
 #----------------------------------------------------------------------------------#
 
 def detect(save_img=False):
@@ -103,10 +99,11 @@ def detect(save_img=False):
     codebook_match = {}
     txt = " "
     correct_hist = {}
-    min_samples = 20
     rbt_glb_pose = robot_global_pose() ## robot global pose
+    lmk_global = landmarks_global_pose() ## landmarks global pose
     lmk_gb = np.zeros((3,1))
     lmk_obsv_poses = {}
+    tot_lmks = []
 
     ## Main loop
     for path, img, im0s, d_map, vid_cap in dataset:
@@ -120,6 +117,7 @@ def detect(save_img=False):
             d4d = 255 - cv2.cvtColor(d4d, cv2.COLOR_GRAY2RGB)
             timestamp = rospy.Time.now()
             rbt_glb_pose.trans_mat()
+            lmk_global.lmk_gPoses_list()
 
         if img.ndimension() == 3:
             img = img.unsqueeze(0)
@@ -220,9 +218,21 @@ def detect(save_img=False):
                         lmk_copy = dict(lmkObsv)
                         keyframes_copy = dict(correct_hist)
                         tracked_hists = dict(tracked_histograms)
+                        lmk_gp = lmk_global.landmarks_global_poses
+
+                        for i, key in enumerate(lmk_obsv_poses):
+                            try:
+                                lmk_obsv_poses[key] = np.array(lmk_gp[i]).reshape(3,1)
+                                print('Cartographer pose: ')
+                                print('Label ' + key + ' cartographer id: ' + str(i))
+                                print(lmk_gp[i])
+                            except:
+                                print('Not in cartographer poses yet')
+
+
+                        print(' Spatial filter :')
                         for key in lmkObsv:
-                            if len(lmkObsv[key]) > min_samples:
-                                #print(key)
+                            if len(lmkObsv[key]) > parameters.min_samples:
                                 lmk = lmkObsv[key]
                                 gpose = np.array(list(map(operator.itemgetter(2), lmk)))
                                 gpose = gpose[:,:,0].transpose()
@@ -233,24 +243,33 @@ def detect(save_img=False):
                                 in_area, occupied = spatial_filter(lmk_obsv_poses, gpose, key)
 
                                 if in_area and not occupied:
-                                    print('Valid observation - in range - unoccupied space')
+                                    print('Valid observation')
+                                    print(' Published id: ' + key)
                                     for i in range(len(lmk)):
                                         lmk_gpose = lmk[i][2]
                                         lmk_list = landmark_pub(lmk[i], key)
                                         lmk_pub.publish(lmk_list)
 
-                                    lmk_obsv_poses[key] = gpose
+                                    if key not in lmk_obsv_poses:
+                                        print('not in cartographer - insert manually calculated global pose')
+                                        print(gpose)
+                                        lmk_obsv_poses[key] = gpose
+
                                 elif not in_area and not occupied:
-                                    print('Mismatch - new observation - out of range - unoccupied space')
+                                    print('matched object is out of range - unoccupied space - publish the observed landmark as a new object')                     
                                     new_id = key.split('_')
                                     lmk_id += 1
                                     new_id = new_id[0] + '_' + str(lmk_id)
+                                    print(' Published id: ' + new_id)
                                     for i in range(len(lmk)):
                                         lmk_gpose = lmk[i][2]
                                         lmk_list = landmark_pub(lmk[i], new_id)
                                         lmk_pub.publish(lmk_list)
 
-                                    lmk_obsv_poses[new_id] = gpose
+                                    if key not in lmk_obsv_poses:
+                                        print('not in cartographer - insert manually calculated global pose')
+                                        print(gpose)
+                                        lmk_obsv_poses[new_id] = gpose
 
                                     del lmk_copy[key]
                                     del keyframes_copy[key]
@@ -260,20 +279,26 @@ def detect(save_img=False):
                                     tracked_hists[new_id] = tracked_histograms[key]
 
                                 else:
-                                    print('out of range - there is a landmark already there - IGNORE')
+                                    print('matched object is out of range - occupied space: there is a landmark already there - IGNORE')
                                     del lmk_copy[key]
                                     del keyframes_copy[key]
                                     del tracked_histograms[key]
                                 print('- - - - - -- - -- - - - - -- - - - -- - - ')
+                            print('---- end of spatial filter ----')
                         
                         lmkObsv = lmk_copy
+                        print('Global poses of each landmark: ')
+                        for key in lmk_obsv_poses:
+                            print('Global pose of landmark '+ key)
+                            print(lmk_obsv_poses[key])
+
                         correct_hist = keyframes_copy
                         tracked_histograms = tracked_hists
 
                         lmkObsv = {}
 
                     if hasattr(tracker, 'sampler_txt'): txt = tracker.sampler_txt
-
+                    print('_____________________________ FRAME _____________________________')
         img2 = cv2.putText(im_rgb, txt, (0, 60), cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 0, 255), 2, cv2.LINE_AA)
 
         fps_disp = (fps_disp + (1. / (torch_utils.time_synchronized() - t1))) / 2

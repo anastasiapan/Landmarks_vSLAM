@@ -9,22 +9,17 @@ from V_SLAM_fcn.bag_of_words_fcn import BoVW_comparison
 
 ## Point clouds
 from V_SLAM_fcn.pcl_functions import cloud_object_center
-from V_SLAM_fcn.robot_global_pose import *
+from V_SLAM_fcn.ros_subscribers import *
 
-import global_variables
+import parameters
 
-## Variables
-min_samples = 20 # Minimum number of samples to go through frame comparison 
-bow_thres = 70  # BoVW matching percentage threshold to declare a match for each comparison
-loop_cl_thres = 75 # Loop closure detection -- Sampler threshold -- number of good matches/total matches
-
-codebook = global_variables.codebook
-parameters = global_variables.parameters
+codebook = parameters.codebook
+img_proc_param = parameters.img_proc_param
 
 def discard_tracks(finished_tracks):
     final_tracks = dict(finished_tracks)
     for key in finished_tracks:
-        if finished_tracks[key].shape[0] < min_samples:
+        if finished_tracks[key].shape[0] < parameters.min_samples:
             del final_tracks[key]
 
     return final_tracks
@@ -38,7 +33,7 @@ def sample(codebook_match, histograms, tracked_histograms, online, lmkObsv):
     correct_tracked = dict(tracked_histograms)
     lmk_correct = dict(lmkObsv)
     for track_id in codebook_match:
-        if len(codebook_match[track_id]) > min_samples:
+        if len(codebook_match[track_id]) > parameters.min_samples:
             unique_ids = {i: codebook_match[track_id].count(i) for i in codebook_match[track_id]}
             unique_ids = sorted(unique_ids.items(), key=operator.itemgetter(1), reverse=True)
 
@@ -73,7 +68,7 @@ def sample(codebook_match, histograms, tracked_histograms, online, lmkObsv):
             print(unique_ids)
             print("-------------------------------------------------------------------------------")
 
-            if id_tot > loop_cl_thres and best_match!='bad_match':
+            if id_tot > parameters.loop_cl_thres and best_match!='bad_match':
                 del final_hist[track_id]
                 final_hist[best_match] = np.append(final_hist[best_match],histograms[track_id], axis=0)
 
@@ -91,8 +86,8 @@ def new_landmarks(detections, id, img, disp, online_data, names):
     tracked_histograms = {}
     lmkObsv = {}
 
-    hess_th = parameters['hess_th']
-    exp_pct = parameters['exp_pct']
+    hess_th = img_proc_param['hess_th']
+    exp_pct = img_proc_param['exp_pct']
     
     for i in range(len(detections)):
         det = detections[i].data.cpu().tolist()
@@ -172,16 +167,19 @@ class track_detections:
         ## Find SURF features in the patch
         gray = cv2.cvtColor(self.img, cv2.COLOR_BGR2GRAY)
         mask = np.zeros(self.img.shape[:2], dtype=np.uint8)
-        ## patch [x1 y1 x2 y2]
+
+        ## patch [x1 y1 x2 y2] expanded by 0.5
         patch  = [int(bbox[0] - self.exp_pct * bbox[0]), int(bbox[1] - self.exp_pct * bbox[1]), int(bbox[2] + self.exp_pct * bbox[2]), int(bbox[3] + self.exp_pct * bbox[3])]
         cv2.rectangle(mask, (patch[0], patch[1]), (patch[2], bbox[1]), (255), thickness=-1)
         cv2.rectangle(mask, (patch[0], bbox[1]), (bbox[0], patch[3]), (255), thickness=-1)
         cv2.rectangle(mask, (bbox[0], bbox[3]), (patch[3], patch[3]), (255), thickness=-1)
         cv2.rectangle(mask, (bbox[2], bbox[1]), (patch[2], bbox[3]), (255), thickness=-1)
 
+        ## extract surf features
         surf = cv2.xfeatures2d.SURF_create(self.hessian)
         kp, des = surf.detectAndCompute(gray, mask)
 
+        ## reduce hessian determinant thershold in case no features are detected
         hess = self.hessian
         while des is None:
             hess = hess - 50
@@ -203,8 +201,6 @@ class track_detections:
         hist = hist.reshape(1, k)
 
         return kp, des, hist
-
-        ## Find good matches - Brute force matching - Lowe ratio test
 
     ## Track objects
     def track_features(self, hist, obj_class):
@@ -228,7 +224,7 @@ class track_detections:
         return self
 
     ## Search if the object is observed before
-    def loop_closure_detection(self,des, box, obj_class, current_obj):
+    def loop_closure_detection(self,hist, box, obj_class, current_obj):
         if current_obj not in self.old_objects:
             self.keyframes_hist = discard_tracks(self.tracked_histograms)
 
@@ -243,12 +239,12 @@ class track_detections:
             self.codebook_match = {}
 
         if len(self.keyframes_hist) >= 1 and current_obj not in self.keyframes_hist:
-            BoVW_match = BoVW_comparison(self.keyframes_hist, des, self.img, self.disp, box[0], box[1], obj_class)
+            BoVW_match = BoVW_comparison(self.keyframes_hist, hist, self.img, self.disp, box[0], box[1], obj_class)
 
             if current_obj not in self.codebook_match: self.codebook_match[current_obj] = []
             if self.online_flag and current_obj not in self.lmkObsv: self.lmkObsv[current_obj] = []
 
-            if BoVW_match.cos_pct > bow_thres:
+            if BoVW_match.cos_pct > parameters.bow_thres:
                 ## Append found match
                 self.codebook_match[current_obj].append(BoVW_match.object)
                 if self.online_flag: self.lmkObsv[current_obj].append(track_detections.online_operation(self,box))
@@ -269,8 +265,8 @@ class track_detections:
         obj_cent = [(box[0] + box[2])/2, (box[1] + box[3])/2]
         pcl = cloud_object_center(self.dmap, obj_cent)
         valid_transformation = self.robot_gtrans.size != 0
-        x = pcl[2] + global_variables.T_cam_imu[0,0]
-        y = pcl[0] + global_variables.T_cam_imu[2,0]
+        x = pcl[2] + parameters.T_cam_imu[0,0]
+        y = pcl[0] + parameters.T_cam_imu[2,0]
         pose = [x,y,1]
         lmk_global_pose = np.dot(self.robot_gtrans,np.array(pose).reshape(3,1)) if valid_transformation else np.zeros((3,1))
         lmkEntry = (self.obsv_time, pcl, lmk_global_pose)
@@ -278,7 +274,7 @@ class track_detections:
         return lmkEntry
 
     ## Same number of objects in current and previous frame
-    def less_or_equal_objects(self, detections, names):
+    def local_objects_tracking(self, detections, names):
         match_to_prev = []
         test = []
         for i in range(self.new_num):           
@@ -316,7 +312,7 @@ class track_detections:
             self.txt = '{} {}'.format(label, round(track_pct))   
             track_detections.draw_text(self, bbox[0], bbox[1])
             self.new_objects[label] = hist
-            track_detections.loop_closure_detection(self, des, bbox, obj_class, label)           
+            track_detections.loop_closure_detection(self, hist, bbox, obj_class, label)           
             
         self.old_objects = self.new_objects
         self.old_num = self.new_num
@@ -326,9 +322,9 @@ class track_detections:
     def __init__(self, old_num, frame, disp, old_landmarks, detections, lmk_id, tracked_histograms, codebook_match, final_tracks, online_data, lmkObsv, names):
         self.new_num = len(detections)
         self.old_num = old_num
-        self.hessian = parameters['hess_th']
-        self.match_thres = parameters['match_thres']
-        self.exp_pct = parameters['exp_pct']
+        self.hessian = img_proc_param['hess_th']
+        self.match_thres = img_proc_param['match_thres']
+        self.exp_pct = img_proc_param['exp_pct']
         self.img = frame
         self.disp = disp
         self.old_objects = old_landmarks
@@ -350,4 +346,4 @@ class track_detections:
         self.lmkObsv = lmkObsv
         self.publish_flag = False
 
-        track_detections.less_or_equal_objects(self, detections,names)
+        track_detections.local_objects_tracking(self, detections,names)

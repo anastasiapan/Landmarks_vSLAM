@@ -3,10 +3,7 @@ import numpy as np
 import cv2
 import operator
 
-import global_variables
-
-lowe_thres = 0.85
-codebook = global_variables.codebook
+from parameters import codebook
 
 ## TF-IDF reweighting keyframes' histograms
 def TF_IDF_reweight(kf_hist, hist):
@@ -32,7 +29,7 @@ def TF_IDF_reweight(kf_hist, hist):
     return re_hist_arr, re_hist
 
 class BoVW_comparison:
-
+    '''
     def img_hist(self):
         ## Initializations
         k = codebook.shape[0]
@@ -48,6 +45,7 @@ class BoVW_comparison:
         self.hist = self.hist.reshape(1, k)
 
         return self
+    '''
 
     def find_match(self):
         ## codebook_hist is a dictionary
@@ -95,10 +93,6 @@ class BoVW_comparison:
 
             self.diff_match = self.sbp/self.cos_pct if self.cos_pct != 0 else 1.0
 
-        ## Split the strings
-        #self.object = self.object.split('p')
-        #self.object = self.object[0]
-
         return self
 
     def draw_ids(self, x_txt, y_txt):
@@ -110,10 +104,10 @@ class BoVW_comparison:
 
         return self
 
-    def __init__(self, codebook_histograms, des, frame, disp, x_txt, y_txt, object_class):
+    def __init__(self, codebook_histograms, hist, frame, disp, x_txt, y_txt, object_class):
         self.codebook_hist = codebook_histograms
-        self.current_des = des
-        self.hist = np.empty((0,0))
+        #self.current_des = des
+        self.hist = hist
         self.cos_pct = 0
         self.object = " "
         self.img = frame
@@ -123,30 +117,23 @@ class BoVW_comparison:
         self.sbp = 0
         self.diff_match = 0.0
 
-        if des is not None:
-            BoVW_comparison.img_hist(self) ## Create image histogram
-            BoVW_comparison.find_match(self) ## Find best match
+        #if des is not None:
+            #BoVW_comparison.img_hist(self) ## Create image histogram
+        BoVW_comparison.find_match(self) ## Find best match
 
-            curr_id = self.object.split('_')
-            curr_id = curr_id[0]
-            if self.obj_class == curr_id:
-                BoVW_comparison.draw_ids(self, x_txt, y_txt) ## Draw ids on frame
+        curr_id = self.object.split('_')
+        curr_id = curr_id[0]
+        if self.obj_class == curr_id:
+            BoVW_comparison.draw_ids(self, x_txt, y_txt) ## Draw ids on frame
 
-            s_id = self.sbo.split('_')
-            s_id = s_id[0]
-            if self.obj_class == s_id:
-                ## Put text next to the bounding box
-                org = (int(x_txt + 10), int(y_txt + 80))  # org - text starting point
-                disp_match = round(self.sbp)
-                txt = '{} {}'.format(self.sbo, disp_match)
-                self.disp = cv2.putText(self.disp, txt, org, cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (255, 230, 0), 2, cv2.LINE_AA)
+        s_id = self.sbo.split('_')
+        s_id = s_id[0]
 
-                ## Put text next to the bounding box
-                #org = (int(x_txt + 10), int(y_txt + 110))  # org - text starting point
-                #disp_match = round(self.diff_match,3)
-                #txt = '{}'.format(disp_match)
-                #col = (255, 150, 0) if disp_match < lowe_thres else (0, 0, 255)
-                #self.disp = cv2.putText(self.disp, txt, org, cv2.FONT_HERSHEY_COMPLEX_SMALL, 1,col , 2, cv2.LINE_AA)
-        else:
-            self.hist = 0
-            self.cos_pct = 0
+        if self.obj_class == s_id:
+            org = (int(x_txt + 10), int(y_txt + 80))  # org - text starting point
+            disp_match = round(self.sbp)
+            txt = '{} {}'.format(self.sbo, disp_match)
+            self.disp = cv2.putText(self.disp, txt, org, cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (255, 230, 0), 2, cv2.LINE_AA)
+        #else:
+        #    self.hist = 0
+        #    self.cos_pct = 0

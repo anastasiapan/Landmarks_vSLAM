@@ -3,7 +3,7 @@ import numpy as np
 import rospy
 
 from cartographer_ros_msgs.msg import LandmarkEntry, LandmarkList
-from global_variables import r, T_cam_imu
+from parameters import r, T_cam_imu
 frame_id = 'imu_frame'
 
 def landmark_pub(lmk_obsv, lmk_id):
@@ -61,5 +61,4 @@ def spatial_filter(lmk_poses_list, lmkPose, lmk_id):
 
     print('in area: ' + str(in_area))
     print('occupied: ' + str(occupied))
-
     return in_area, occupied
