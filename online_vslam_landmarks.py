@@ -15,23 +15,17 @@ import operator
 import numpy as np
 
 ## Find best match
-from V_SLAM_fcn.visual_tracker_fcn import *
+from V_SLAM_fcn.old_tracker import *
 
 ## Load codebook and re-weighted histograms
 codebook =  np.load('./V_SLAM_fcn/codebook/Visual_Words100.npy') ## codebook
-re_hist = np.load('./V_SLAM_fcn/codebook/tfidf_histograms_b329_more_kf.npy', allow_pickle=True).reshape(1, 1) ## dctionary histogram
+re_hist = np.load('./PR_plot/kf_hists_329_surf_500.npy', allow_pickle=True).reshape(1, 1) ## dctionary histogram
 re_hist = re_hist[0,0]
 
 width = 640
 height = 480
 
-## Parameters
-parameters = {"hess_th": 400, ## Hessian threshold for SURF features
-              "lowe_ratio": 0.7, ## Lowe ratio for brute force matching
-              "match_thres": 30, ## Matching threshold for the tracker
-              "exp_pct": 0.5} ## Percentage for bounding box expansion
-
-online_flag = True ## Run online or from a video
+online_flag = False ## Run online or from a video
 #----------------------------------------------------------------------------------#
 
 ## ROS ----------------------------------------------------------------------------#
@@ -113,13 +107,13 @@ def detect(save_img=False):
     _ = model(img.half() if half else img) if device.type != 'cpu' else None  # run once
 
     ## Init
-    id = 0
+    first_detection = True
+    lmk_id = 0
     old_objects = {}
     old_num = 0
     codebook_match = {}
     txt = " "
-    #id_pct = 0
-    first_detection = True
+    correct_hist = {}
 
     ## Main loop
     for path, img, im0s, dmap, vid_cap in dataset:
@@ -205,39 +199,22 @@ def detect(save_img=False):
                 if not objects.cpu().tolist(): objects = None
 
             ## Track and sample landmarks
+            ## Track and sample landmarks
             if objects is not None:
                 if first_detection:
-                    id += 1
-                    first_detection = False
+                    lmk_id += 1
                     old_num = len(objects)
-                    im_rgb, old_objects, old_histograms, codebook_match, timestamps, poses = new_landmarks(online_data, objects, id, im0, im_rgb, parameters, codebook, re_hist, names)
-
+                    im_rgb, old_objects = new_landmarks(objects, lmk_id, im0, im_rgb, online_data, names)
+                    first_detection = False
+                    codebook_match = {}
+                    correct_hist = {}
                 else:
-                    tracker = track_objects(online_data, old_num, parameters, im0, im_rgb, old_objects,
-                                            objects, id, codebook, re_hist, codebook_match, timestamps, poses, names)
-                    id = tracker.id
+                    tracker = track_detections(old_num,  im0, im_rgb, old_objects, objects, lmk_id, codebook_match, re_hist, online_data, names)
+                    lmk_id = tracker.id
                     old_objects = tracker.old_objects
                     old_num = tracker.old_num
-                    codebook_match = tracker.codebook_match
-                    prev_cb_match = tracker.prev_codebook_match
-                    timestamps = tracker.timestamps
-                    poses = tracker.poses
                     im_rgb = tracker.disp
-                    track_ended = tracker.track_ended
-
-                    if track_ended:
-                        ## Sample results
-                        sampled_poses, sampled_tstamps, id_pct, txt = sample(prev_cb_match, online_flag, timestamps,
-                                                                             poses)
-
-                        if online_flag and id_pct > 70:  ## If running online publish landmarks list
-                            arranged_poses, arranged_tstamps = serial_landmarks(sampled_poses, sampled_tstamps)
-
-                            ## Publish landmarks
-                            for ts in arranged_tstamps:
-                                lmk_list = landmark_pub(arranged_poses[ts], arranged_tstamps[ts],
-                                                        rospy.Time.from_sec(int(ts) / 1e9))
-                                lmk_pub.publish(lmk_list)
+                    codebook_match = tracker.codebook_match
 
         img2 = cv2.putText(im_rgb, txt, (0, 60), cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 0, 255), 2, cv2.LINE_AA)
 
@@ -254,18 +231,6 @@ def detect(save_img=False):
                 cv2.imshow('output', img2)
                 out_vid_write.write(img2)
             if cv2.waitKey(1) == ord('q'):  # q to quit
-                ## Sample results before exiting
-                sampled_poses, sampled_tstamps, id_pct, txt = sample(codebook_match, online_flag, timestamps, poses)
-
-                if online_flag and id_pct > 70:  ## If running online publish landmarks list
-                    arranged_poses, arranged_tstamps = serial_landmarks(sampled_poses, sampled_tstamps)
-
-                    ## Publish landmarks
-                    for ts in arranged_tstamps:
-                        lmk_list = landmark_pub(arranged_poses[ts], arranged_tstamps[ts],
-                                                rospy.Time.from_sec(int(ts) / 1e9))
-                        lmk_pub.publish(lmk_list)
-
                 raise StopIteration
 
         # Save results (image with detections)
@@ -286,18 +251,7 @@ def detect(save_img=False):
                 #vid_writer.write(display)
 
     if save_txt or save_img:
-        ## Sample results before exiting
-        sampled_poses, sampled_tstamps, id_pct, txt = sample(codebook_match, online_flag, timestamps, poses)
-
-        if online_flag and id_pct>70:  ## If running online publish landmarks list
-            arranged_poses, arranged_tstamps = serial_landmarks(sampled_poses, sampled_tstamps)
-
-            ## Publish landmarks
-            for ts in aranged_timestamps:
-                lmk_list = landmark_pub(arranged_poses[ts], arranged_tstamps[ts],
-                                        rospy.Time.from_sec(int(ts) / 1e9))
-                lmk_pub.publish(lmk_list)
-
+        id_pct, id_tot, sampler_txt = sample(codebook_match,False)
         print('Results saved to %s' % os.getcwd() + os.sep + out)
         if platform == 'darwin':  # MacOS
             os.system('open ' + save_path)
@@ -308,10 +262,10 @@ def detect(save_img=False):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', type=str, default='weights/best_yolov5x_custom_3.pt', help='model.pt path')
-    parser.add_argument('--source', type=str, default='0', help='source')  # file/folder, 0 for webcam
+    parser.add_argument('--source', type=str, default='inference/videos/fire3.mp4', help='source')  # file/folder, 0 for webcam
     parser.add_argument('--output', type=str, default='inference/output/', help='output folder')  # output folder
     parser.add_argument('--img-size', type=int, default=416, help='inference size (pixels)')
-    parser.add_argument('--conf-thres', type=float, default=0.85, help='object confidence threshold')
+    parser.add_argument('--conf-thres', type=float, default=0.7, help='object confidence threshold')
     parser.add_argument('--iou-thres', type=float, default=0.5, help='IOU threshold for NMS')
     parser.add_argument('--fourcc', type=str, default='mp4v', help='output video codec (verify ffmpeg support)')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')

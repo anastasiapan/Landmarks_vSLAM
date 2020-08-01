@@ -29,23 +29,6 @@ def TF_IDF_reweight(kf_hist, hist):
     return re_hist_arr, re_hist
 
 class BoVW_comparison:
-    '''
-    def img_hist(self):
-        ## Initializations
-        k = codebook.shape[0]
-
-        num_feat = self.current_des.shape[0]  # Number of extracted features for frame to be tested
-        des = np.dstack(np.split(self.current_des, num_feat))
-
-        words_stack = np.dstack([codebook] * num_feat)  ## stack words depthwise
-        diff = words_stack - des
-        dist = np.linalg.norm(diff, axis=1)
-        idx = np.argmin(dist, axis=0)
-        self.hist, n_bins = np.histogram(idx, bins=k)
-        self.hist = self.hist.reshape(1, k)
-
-        return self
-    '''
 
     def find_match(self):
         ## codebook_hist is a dictionary
@@ -54,7 +37,6 @@ class BoVW_comparison:
         #eucl_dist = {}
         #cb_hist = list(self.codebook_hist.items())
         #cb_hist = dict(cb_hist[0:-1])
-
         #for key in cb_hist:
         for key in self.codebook_hist:
             curr_id = key.split('_')
@@ -76,7 +58,6 @@ class BoVW_comparison:
                 sim_cos[key] = max(sim_arr)
             else:
                 sim_cos[key] = 0
-
         ## Most similar frame
         sim_cos = sorted(sim_cos.items(), key=operator.itemgetter(1), reverse=True)
 
@@ -99,14 +80,15 @@ class BoVW_comparison:
         ## Put text next to the bounding box
         org = (int(x_txt + 10), int(y_txt + 50))  # org - text starting point
         disp_match = round(self.cos_pct)
-        txt = '{} {}'.format(self.object, disp_match)
+        obj_name = self.object.split('_')
+        prnt_label = 'Fire_'+str(obj_name[1]) if obj_name[0]=='Fire Extinguisher' else self.object ## Fire Extinguisher is too large to display
+        txt = '{} {}'.format(prnt_label, disp_match)
         self.disp = cv2.putText(self.disp, txt, org, cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (255,230,0), 1, cv2.LINE_AA)
 
         return self
 
     def __init__(self, codebook_histograms, hist, frame, disp, x_txt, y_txt, object_class):
         self.codebook_hist = codebook_histograms
-        #self.current_des = des
         self.hist = hist
         self.cos_pct = 0
         self.object = " "
@@ -117,8 +99,6 @@ class BoVW_comparison:
         self.sbp = 0
         self.diff_match = 0.0
 
-        #if des is not None:
-            #BoVW_comparison.img_hist(self) ## Create image histogram
         BoVW_comparison.find_match(self) ## Find best match
 
         curr_id = self.object.split('_')
@@ -134,6 +114,3 @@ class BoVW_comparison:
             disp_match = round(self.sbp)
             txt = '{} {}'.format(self.sbo, disp_match)
             self.disp = cv2.putText(self.disp, txt, org, cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (255, 230, 0), 2, cv2.LINE_AA)
-        #else:
-        #    self.hist = 0
-        #    self.cos_pct = 0

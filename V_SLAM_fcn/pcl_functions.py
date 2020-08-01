@@ -82,10 +82,19 @@ def cloud_object_center(dmap, obj_cent):
     cy = 215.21
 
     #obj_cent = [(boxS[i][0] + boxE[i][0])/2, (boxS[i][1] + boxE[i][1])/2]
+    ## Extract a 20x20 box
+    #boxx = 
+    #limX = np.arange(int(obj_cent[0])-5, int(obj_cent[0])+5)
+    #limY = np.arange(int(obj_cent[1])-5, int(obj_cent[1])+5)
     z = dmap[int(obj_cent[1])][int(obj_cent[0])]  # z
+    #z = dmap[int(obj_cent[1])-5:int(obj_cent[1])+5][int(obj_cent[0])-5:int(obj_cent[0])+5]
+    #z = z.reshape(z.size)
     x = -(int(obj_cent[0]) - cx) * z / fx  # x
     y = -(int(obj_cent[1]) - cy) * z / fy  # y
+    #x = -(limX - cx) * z / fx  # x
+    #y = -(limY - cy) * z / fy  # y
 
+    #pcl_point = [np.mean(x)/1000,np.mean(y)/1000,np.mean(z)/1000]
     pcl_point = [x/1000,y/1000,z/1000]
 
     return pcl_point

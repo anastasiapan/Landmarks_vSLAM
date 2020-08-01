@@ -15,7 +15,7 @@ import operator
 import numpy as np
 
 ## Find best match
-from V_SLAM_fcn.visual_tracker_fcn_update import *
+from V_SLAM_fcn.visual_tracker_fcn import *
 from V_SLAM_fcn.ros_subscribers import *
 import parameters
 
@@ -104,6 +104,8 @@ def detect(save_img=False):
     lmk_gb = np.zeros((3,1))
     lmk_obsv_poses = {}
     tot_lmks = []
+    spatial_filter_text = ' '
+    frames_wo_det = 0
 
     ## Main loop
     for path, img, im0s, d_map, vid_cap in dataset:
@@ -189,7 +191,7 @@ def detect(save_img=False):
                         #print(dmap[int(obj_cent[1]), int(obj_cent[0])])
                         im_rgb = cv2.circle(im_rgb, (int(obj_cent[0]), int(obj_cent[1])), 5, (0,255,0), -1)
                         if online_flag: d4d = cv2.circle(d4d, (int(obj_cent[0]), int(obj_cent[1])), 5, (0,0,255), -1)
-                        if dmap[int(obj_cent[1]), int(obj_cent[0])] < 600 or dmap[int(obj_cent[1]), int(obj_cent[0])] > 3500:
+                        if dmap[int(obj_cent[1]), int(obj_cent[0])] < 800 or dmap[int(obj_cent[1]), int(obj_cent[0])] > 3500:
                             objects = torch.cat([detections[0:i], detections[i+1:]])
 
                 if not objects.cpu().tolist(): objects = None
@@ -197,6 +199,7 @@ def detect(save_img=False):
             ## Track and sample landmarks
             if objects is not None:
                 if first_detection:
+                    frames_wo_det = 0
                     lmk_id += 1
                     old_num = len(objects)
                     im_rgb, old_objects, tracked_histograms,  lmkObsv = new_landmarks(objects, lmk_id, im0, im_rgb, online_data, names)
@@ -204,7 +207,7 @@ def detect(save_img=False):
                     codebook_match = {}
                     correct_hist = {}
                 else:
-                    tracker = track_detections(old_num,  im0, im_rgb, old_objects, objects, lmk_id, tracked_histograms, codebook_match, correct_hist, online_data, lmkObsv, names)
+                    tracker = track_detections(old_num,  im0, im_rgb, old_objects, objects, lmk_id, tracked_histograms, codebook_match, correct_hist, online_data, lmkObsv, names, frames_wo_det)
                     lmk_id = tracker.id
                     old_objects = tracker.old_objects
                     old_num = tracker.old_num
@@ -213,24 +216,21 @@ def detect(save_img=False):
                     codebook_match = tracker.codebook_match
                     correct_hist = tracker.keyframes_hist
                     lmkObsv = tracker.lmkObsv
+                    frames_wo_det = 0
 
                     if tracker.publish_flag:
+                        print('_____________________________ FRAME _____________________________')
                         lmk_copy = dict(lmkObsv)
                         keyframes_copy = dict(correct_hist)
                         tracked_hists = dict(tracked_histograms)
                         lmk_gp = lmk_global.landmarks_global_poses
-
+                        
                         for i, key in enumerate(lmk_obsv_poses):
                             try:
                                 lmk_obsv_poses[key] = np.array(lmk_gp[i]).reshape(3,1)
-                                print('Cartographer pose: ')
-                                print('Label ' + key + ' cartographer id: ' + str(i))
-                                print(lmk_gp[i])
                             except:
-                                print('Not in cartographer poses yet')
-
-
-                        print(' Spatial filter :')
+                                pass
+                        
                         for key in lmkObsv:
                             if len(lmkObsv[key]) > parameters.min_samples:
                                 lmk = lmkObsv[key]
@@ -244,6 +244,7 @@ def detect(save_img=False):
 
                                 if in_area and not occupied:
                                     print('Valid observation')
+                                    spatial_filter_text = 'Valid observation'
                                     print(' Published id: ' + key)
                                     for i in range(len(lmk)):
                                         lmk_gpose = lmk[i][2]
@@ -256,7 +257,8 @@ def detect(save_img=False):
                                         lmk_obsv_poses[key] = gpose
 
                                 elif not in_area and not occupied:
-                                    print('matched object is out of range - unoccupied space - publish the observed landmark as a new object')                     
+                                    print('matched object is out of range - unoccupied space - new object')  
+                                    spatial_filter_text = 'match out of range - free space - new object'                   
                                     new_id = key.split('_')
                                     lmk_id += 1
                                     new_id = new_id[0] + '_' + str(lmk_id)
@@ -266,31 +268,28 @@ def detect(save_img=False):
                                         lmk_list = landmark_pub(lmk[i], new_id)
                                         lmk_pub.publish(lmk_list)
 
-                                    if key not in lmk_obsv_poses:
+                                    if new_id not in lmk_obsv_poses:
                                         print('not in cartographer - insert manually calculated global pose')
                                         print(gpose)
                                         lmk_obsv_poses[new_id] = gpose
 
-                                    del lmk_copy[key]
-                                    del keyframes_copy[key]
-                                    del tracked_hists[key]
                                     lmk_copy[new_id] = lmkObsv[key]
                                     keyframes_copy[new_id] = correct_hist[key]
                                     tracked_hists[new_id] = tracked_histograms[key]
 
+                                    del lmk_copy[key]
+                                    del keyframes_copy[key]
+                                    del tracked_histograms[key]
+
                                 else:
-                                    print('matched object is out of range - occupied space: there is a landmark already there - IGNORE')
+                                    print('match out of range - space occupied - ignore')
+                                    spatial_filter_text = 'match out of range - space occupied - ignore'
                                     del lmk_copy[key]
                                     del keyframes_copy[key]
                                     del tracked_histograms[key]
                                 print('- - - - - -- - -- - - - - -- - - - -- - - ')
-                            print('---- end of spatial filter ----')
                         
                         lmkObsv = lmk_copy
-                        print('Global poses of each landmark: ')
-                        for key in lmk_obsv_poses:
-                            print('Global pose of landmark '+ key)
-                            print(lmk_obsv_poses[key])
 
                         correct_hist = keyframes_copy
                         tracked_histograms = tracked_hists
@@ -298,9 +297,12 @@ def detect(save_img=False):
                         lmkObsv = {}
 
                     if hasattr(tracker, 'sampler_txt'): txt = tracker.sampler_txt
-                    print('_____________________________ FRAME _____________________________')
-        img2 = cv2.putText(im_rgb, txt, (0, 60), cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 0, 255), 2, cv2.LINE_AA)
 
+            else: ## no detections
+                frames_wo_det +=1
+                
+        img2 = cv2.putText(im_rgb, txt, (0, 60), cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 0, 255), 2, cv2.LINE_AA)
+        img2 = cv2.putText(im_rgb, spatial_filter_text, (0, 450), cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (255, 0, 0), 1, cv2.LINE_AA)
         fps_disp = (fps_disp + (1. / (torch_utils.time_synchronized() - t1))) / 2
         img2 = cv2.putText(img2, "FPS: {:.2f}".format(fps_disp), (0, 30),
                           cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 0, 255), 2)
@@ -308,10 +310,10 @@ def detect(save_img=False):
         if view_img or save_img:
             if online_flag:
                 #display = np.hstack((d4d, img2))
-                cv2.imshow('output', img2)
+                #cv2.imshow('output', img2)
                 out_vid_write.write(img2)
             else:
-                cv2.imshow('output', img2)
+                #cv2.imshow('output', img2)
                 out_vid_write.write(img2)
 
             if cv2.waitKey(1) == ord('q'):  # q to quit
