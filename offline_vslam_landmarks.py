@@ -19,35 +19,13 @@ from V_SLAM_fcn.old_tracker import *
 
 ## Load codebook and re-weighted histograms
 codebook =  np.load('./V_SLAM_fcn/codebook/Visual_Words100.npy') ## codebook
-re_hist = np.load('./PR_plot/kf_hists_329_surf_500.npy', allow_pickle=True).reshape(1, 1) ## dctionary histogram
-re_hist = re_hist[0,0]
+#re_hist = np.load('./PR_plot/kf_hists_329_surf_500.npy', allow_pickle=True).reshape(1, 1) ## dctionary histogram
+#re_hist = re_hist[0,0]
 
 width = 640
 height = 480
 
 online_flag = False ## Run online or from a video
-#----------------------------------------------------------------------------------#
-
-## ROS ----------------------------------------------------------------------------#
-if online_flag:
-    sys.path.append('/opt/ros/melodic/lib/python2.7/dist-packages')
-    import roslib
-    import rospy
-    import math
-    import tf
-    import geometry_msgs.msg
-    from cartographer_ros_msgs.msg import LandmarkEntry, LandmarkList
-    from ROS_pub import landmark_pub
-    TOPIC = '/v_landmarks'
-    ## ROS landmark publisher node
-    rospy.init_node('landmark_publisher', anonymous=True)
-    lmk_pub = rospy.Publisher(TOPIC, LandmarkList, queue_size=1000)
-    ## robot global pose listener node
-    rospy.init_node('robot_global_pose')
-    global_pose_listener = tf.TransformListener()
-    #rate = rospy.Rate(10.0)
-    
-#----------------------------------------------------------------------------------#
 
 def detect(save_img=False):
     ## Writing output video
@@ -55,7 +33,7 @@ def detect(save_img=False):
     height = 480
     fps = 30
     codec = cv2.VideoWriter_fourcc(*'XVID')
-    output_path = './329_Lowe_ratio085_online.avi'
+    output_path = './pr_test.avi'
     out_vid_write = cv2.VideoWriter(output_path, codec, fps, (width, height))
 
     out, source, weights, view_img, save_txt, imgsz = \
@@ -114,17 +92,13 @@ def detect(save_img=False):
     codebook_match = {}
     txt = " "
     correct_hist = {}
+    frames_wo_det = 0
 
     ## Main loop
     for path, img, im0s, dmap, vid_cap in dataset:
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
-
-        #dmap = d_map
-        #if online_flag and dmap is not None:
-         #   d4d = np.uint8(dmap.astype(float) * 255 / 2 ** 12 - 1)  # Correct the range. Depth images are 12bits
-          #  d4d = 255 - cv2.cvtColor(d4d, cv2.COLOR_GRAY2RGB)
 
         if img.ndimension() == 3:
             img = img.unsqueeze(0)
@@ -181,51 +155,59 @@ def detect(save_img=False):
                         plot_one_box(xyxy, im_rgb, label=label, color=(0,255,0), line_thickness=3)
 
             ## Check if any detections happen
-            objects = pred[0]
+            detections = pred[0]
+            objects = detections
             if det is not None:
                 ## number of detections:
-                num_d = len(objects)
+                num_d = len(detections)
                 for i in range(num_d):
-                    det_info = objects[i].data.cpu().tolist()
+                    det_info = detections[i].data.cpu().tolist()
                     bbox = [int(j) for j in det_info[0:4]]  ## bbox = [x1 y1 x2 y2]
 
-                    ## If running online check if the object is within range
-                    if online_flag:
-                        obj_cent = [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2]  ## [x y] center pixel of the area the object is located
-                        ## Optimal operation range: 0.6-3m
-                        if dmap[int(obj_cent[1]), int(obj_cent[0])] < 600 or dmap[int(obj_cent[1]), int(obj_cent[0])] > 3000:
-                            objects = torch.cat([objects[0:i], objects[i+1:]])
+                    boxH = bbox[3] - bbox[1]
+                    boxW = bbox[2] - bbox[0]
+                    if boxH < 120:
+                        objects = torch.cat([detections[0:i], detections[i+1:]])
 
                 if not objects.cpu().tolist(): objects = None
 
             ## Track and sample landmarks
-            ## Track and sample landmarks
             if objects is not None:
                 if first_detection:
+                    frames_wo_det = 0
                     lmk_id += 1
                     old_num = len(objects)
-                    im_rgb, old_objects = new_landmarks(objects, lmk_id, im0, im_rgb, online_data, names)
+                    im_rgb, old_objects, tracked_histograms = new_landmarks(objects, lmk_id, im0, im_rgb, online_data, names)
                     first_detection = False
                     codebook_match = {}
                     correct_hist = {}
                 else:
-                    tracker = track_detections(old_num,  im0, im_rgb, old_objects, objects, lmk_id, codebook_match, re_hist, online_data, names)
+                    tracker = track_detections(old_num, im0, im_rgb, old_objects, objects, lmk_id, tracked_histograms, codebook_match, correct_hist, online_data, names, frames_wo_det)
                     lmk_id = tracker.id
                     old_objects = tracker.old_objects
                     old_num = tracker.old_num
                     im_rgb = tracker.disp
+                    tracked_histograms = tracker.tracked_histograms
                     codebook_match = tracker.codebook_match
+                    correct_hist = tracker.keyframes_hist
+                    frames_wo_det = 0
 
-        img2 = cv2.putText(im_rgb, txt, (0, 60), cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 0, 255), 2, cv2.LINE_AA)
+                    if hasattr(tracker, 'sampler_txt') and tracker.sampler_txt != " ": 
+                        txt = tracker.sampler_txt
+
+            else: ## no detections
+                frames_wo_det +=1
+        img2 = cv2.putText(im_rgb, txt, (0, 60), cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 0, 255), 1, cv2.LINE_AA)
 
         fps_disp = (fps_disp + (1. / (torch_utils.time_synchronized() - t1))) / 2
         img2 = cv2.putText(img2, "FPS: {:.2f}".format(fps_disp), (0, 30),
                           cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 0, 255), 2)
+
         # Stream results
         if view_img or save_img:
             if online_flag:
                 #display = np.hstack((d4d, img2))
-                cv2.imshow('output', img2)
+                #cv2.imshow('output', img2)
                 out_vid_write.write(img2)
             else:
                 cv2.imshow('output', img2)
@@ -251,18 +233,19 @@ def detect(save_img=False):
                 #vid_writer.write(display)
 
     if save_txt or save_img:
-        id_pct, id_tot, sampler_txt = sample(codebook_match,False)
+        #id_pct, id_tot, sampler_txt, correct_hist, correct_tracked = sample(codebook_match, correct_hist ,tracked_histograms, online_flag)
+
         print('Results saved to %s' % os.getcwd() + os.sep + out)
         if platform == 'darwin':  # MacOS
             os.system('open ' + save_path)
-
+    print(correct_hist.keys())
     print('Done. (%.3fs)' % (time.time() - t0))
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', type=str, default='weights/best_yolov5x_custom_3.pt', help='model.pt path')
-    parser.add_argument('--source', type=str, default='inference/videos/fire3.mp4', help='source')  # file/folder, 0 for webcam
+    parser.add_argument('--source', type=str, default='inference/videos/329_two_classes_test_video_01.avi', help='source')  # file/folder, 0 for webcam
     parser.add_argument('--output', type=str, default='inference/output/', help='output folder')  # output folder
     parser.add_argument('--img-size', type=int, default=416, help='inference size (pixels)')
     parser.add_argument('--conf-thres', type=float, default=0.7, help='object confidence threshold')

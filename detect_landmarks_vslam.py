@@ -11,12 +11,11 @@ from utils import google_utils
 from utils.datasets import *
 from utils.utils import *
 
-import operator
 import numpy as np
 
-## Find best match
 from V_SLAM_fcn.visual_tracker_fcn import *
 from V_SLAM_fcn.ros_subscribers import *
+from V_SLAM_fcn.spatial_filter_fcn import *
 import parameters
 
 width = 640
@@ -41,7 +40,7 @@ def detect(save_img=False):
     ## Writing output video
     fps = 30
     codec = cv2.VideoWriter_fourcc(*'XVID')
-    output_path = './rt_kf_sampler.avi'
+    output_path = './name_video.avi'
     out_vid_write = cv2.VideoWriter(output_path, codec, fps, (width, height))
 
     out, source, weights, view_img, save_txt, imgsz = \
@@ -101,9 +100,7 @@ def detect(save_img=False):
     correct_hist = {}
     rbt_glb_pose = robot_global_pose() ## robot global pose
     lmk_global = landmarks_global_pose() ## landmarks global pose
-    lmk_gb = np.zeros((3,1))
     lmk_obsv_poses = {}
-    tot_lmks = []
     spatial_filter_text = ' '
     frames_wo_det = 0
 
@@ -220,88 +217,22 @@ def detect(save_img=False):
 
                     if tracker.publish_flag:
                         print('_____________________________ FRAME _____________________________')
-                        lmk_copy = dict(lmkObsv)
-                        keyframes_copy = dict(correct_hist)
-                        tracked_hists = dict(tracked_histograms)
-                        lmk_gp = lmk_global.landmarks_global_poses
-                        
-                        for i, key in enumerate(lmk_obsv_poses):
-                            try:
-                                lmk_obsv_poses[key] = np.array(lmk_gp[i]).reshape(3,1)
-                            except:
-                                pass
-                        
-                        for key in lmkObsv:
-                            if len(lmkObsv[key]) > parameters.min_samples:
-                                lmk = lmkObsv[key]
-                                gpose = np.array(list(map(operator.itemgetter(2), lmk)))
-                                gpose = gpose[:,:,0].transpose()
-                                gpose = np.true_divide(gpose.sum(1),(gpose!=0).sum(1)).reshape(3,1)
-                                print('- - - - - -- - -- - - - - -- - - - -- - - ')
-                                print('I saw ' + key + ' with a global pose of:')
-                                print(gpose)
-                                in_area, occupied = spatial_filter(lmk_obsv_poses, gpose, key)
+                        lmk_gp = lmk_global.landmarks_global_poses ## Global poses of landmarks
+                        filtered_obsv = spatial_filter(lmkObsv, correct_hist, tracked_histograms, lmk_gp, lmk_obsv_poses, spatial_filter_text, lmk_pub, lmk_id)
 
-                                if in_area and not occupied:
-                                    print('Valid observation')
-                                    spatial_filter_text = 'Valid observation'
-                                    print(' Published id: ' + key)
-                                    for i in range(len(lmk)):
-                                        lmk_gpose = lmk[i][2]
-                                        lmk_list = landmark_pub(lmk[i], key)
-                                        lmk_pub.publish(lmk_list)
+                        correct_hist = filtered_obsv.keyframes_copy
+                        tracked_histograms = filtered_obsv.tracked_hists
+                        lmkObsv = filtered_obsv.lmkObsv
+                        spatial_filter_text = filtered_obsv.spatial_filter_text
+                        lmk_id = filtered_obsv.lmk_id
 
-                                    if key not in lmk_obsv_poses:
-                                        print('not in cartographer - insert manually calculated global pose')
-                                        print(gpose)
-                                        lmk_obsv_poses[key] = gpose
-
-                                elif not in_area and not occupied:
-                                    print('matched object is out of range - unoccupied space - new object')  
-                                    spatial_filter_text = 'match out of range - free space - new object'                   
-                                    new_id = key.split('_')
-                                    lmk_id += 1
-                                    new_id = new_id[0] + '_' + str(lmk_id)
-                                    print(' Published id: ' + new_id)
-                                    for i in range(len(lmk)):
-                                        lmk_gpose = lmk[i][2]
-                                        lmk_list = landmark_pub(lmk[i], new_id)
-                                        lmk_pub.publish(lmk_list)
-
-                                    if new_id not in lmk_obsv_poses:
-                                        print('not in cartographer - insert manually calculated global pose')
-                                        print(gpose)
-                                        lmk_obsv_poses[new_id] = gpose
-
-                                    lmk_copy[new_id] = lmkObsv[key]
-                                    keyframes_copy[new_id] = correct_hist[key]
-                                    tracked_hists[new_id] = tracked_histograms[key]
-
-                                    del lmk_copy[key]
-                                    del keyframes_copy[key]
-                                    del tracked_histograms[key]
-
-                                else:
-                                    print('match out of range - space occupied - ignore')
-                                    spatial_filter_text = 'match out of range - space occupied - ignore'
-                                    del lmk_copy[key]
-                                    del keyframes_copy[key]
-                                    del tracked_histograms[key]
-                                print('- - - - - -- - -- - - - - -- - - - -- - - ')
-                        
-                        lmkObsv = lmk_copy
-
-                        correct_hist = keyframes_copy
-                        tracked_histograms = tracked_hists
-
-                        lmkObsv = {}
-
-                    if hasattr(tracker, 'sampler_txt'): txt = tracker.sampler_txt
+                    if hasattr(tracker, 'sampler_txt')  and tracker.sampler_txt != " ":
+                        txt = tracker.sampler_txt
 
             else: ## no detections
                 frames_wo_det +=1
                 
-        img2 = cv2.putText(im_rgb, txt, (0, 60), cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 0, 255), 2, cv2.LINE_AA)
+        img2 = cv2.putText(im_rgb, txt, (0, 60), cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 0, 255), 1, cv2.LINE_AA)
         img2 = cv2.putText(im_rgb, spatial_filter_text, (0, 450), cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (255, 0, 0), 1, cv2.LINE_AA)
         fps_disp = (fps_disp + (1. / (torch_utils.time_synchronized() - t1))) / 2
         img2 = cv2.putText(img2, "FPS: {:.2f}".format(fps_disp), (0, 30),

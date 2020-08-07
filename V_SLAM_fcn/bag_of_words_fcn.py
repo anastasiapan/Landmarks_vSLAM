@@ -83,7 +83,7 @@ class BoVW_comparison:
         obj_name = self.object.split('_')
         prnt_label = 'Fire_'+str(obj_name[1]) if obj_name[0]=='Fire Extinguisher' else self.object ## Fire Extinguisher is too large to display
         txt = '{} {}'.format(prnt_label, disp_match)
-        self.disp = cv2.putText(self.disp, txt, org, cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (255,230,0), 1, cv2.LINE_AA)
+        self.disp = cv2.putText(self.disp, txt, org, cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (51, 255, 255), 1, cv2.LINE_AA)
 
         return self
 
@@ -108,9 +108,3 @@ class BoVW_comparison:
 
         s_id = self.sbo.split('_')
         s_id = s_id[0]
-
-        if self.obj_class == s_id:
-            org = (int(x_txt + 10), int(y_txt + 80))  # org - text starting point
-            disp_match = round(self.sbp)
-            txt = '{} {}'.format(self.sbo, disp_match)
-            self.disp = cv2.putText(self.disp, txt, org, cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (255, 230, 0), 2, cv2.LINE_AA)

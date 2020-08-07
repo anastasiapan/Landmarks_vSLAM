@@ -14,6 +14,7 @@ import parameters
 
 codebook = parameters.codebook
 img_proc_param = parameters.img_proc_param
+prev_txt_samp = " "
 
 def discard_tracks(finished_tracks):
     final_tracks = dict(finished_tracks)
@@ -23,16 +24,18 @@ def discard_tracks(finished_tracks):
 
     return final_tracks
 
-def sample(codebook_match, online):
+def sample(codebook_match, histograms, tracked_histograms, online):
     ## Correct the false ids
     id_pct = 0
     id_tot = 0
-    txt = ' '
+    txt = " "
+    final_hist = dict(histograms)
+    correct_tracked = dict(tracked_histograms)
     for track_id in codebook_match:
         if len(codebook_match[track_id]) > parameters.min_samples:
             unique_ids = {i: codebook_match[track_id].count(i) for i in codebook_match[track_id]}
             unique_ids = sorted(unique_ids.items(), key=operator.itemgetter(1), reverse=True)
-            print(unique_ids)
+
             best_match = unique_ids[0][0]
             best_pct = unique_ids[0][1]
 
@@ -41,6 +44,8 @@ def sample(codebook_match, online):
                 best_pct = unique_ids[1][1]
 
             text = "I saw {} ".format(track_id) + " as {} {} ".format(best_match, best_pct) + "times!"
+
+            #np.append(tracked_histograms[track_id],
 
             print(text)
             sum_det = 0
@@ -55,18 +60,34 @@ def sample(codebook_match, online):
             #txt = "I am {} ".format(round(id_pct)) + "% sure that I saw {}.".format(best_match)
 
             if best_match != 'bad_match':
-                txt = "I am {} ".format(round(id_tot)) + "% sure that I saw {}.".format(best_match)
+                #txt = "I am {} ".format(round(id_tot)) + "% sure that I saw {}.".format(track_id) + "as {}.".format(best_match)
+                label = track_id.split('_')
+                bmatch = best_match.split('_')
+                prnt_label = 'Fire' if label[0]=='Fire Extinguisher' else label 
+                prnt_track = prnt_label + '_' + str(label[1]) if label[0]=='Fire Extinguisher' else track_id
+                prnt_match = prnt_label + '_' + str(bmatch[1]) if bmatch[0]=='Fire Extinguisher' else best_match
+                txt = "Match " + prnt_track + ": " +   prnt_match + " " + str(round(id_tot))
             else:
-                txt = ' '
-            print(txt)
+                txt = "Match not found"
             print(unique_ids)
+            print(txt)
+
+            if id_tot > parameters.loop_cl_thres and best_match!='bad_match':
+                try:
+                    del final_hist[track_id]
+                    final_hist[best_match] = np.append(final_hist[best_match],histograms[track_id], axis=0)
+
+                    del correct_tracked[track_id]
+                    correct_tracked[best_match] = np.append(tracked_histograms[best_match], histograms[track_id], axis=0)
+                except:
+                    pass
             print("-------------------------------------------------------------------------------")
 
-    return id_pct, id_tot, txt
+    return id_pct, id_tot, txt, final_hist, correct_tracked
 
 def new_landmarks(detections, id, img, disp, online_data, names):
     old_objects = {}
-    lmkObsv = {}
+    tracked_histograms = {}
 
     hess_th = img_proc_param['hess_th']
     exp_pct = img_proc_param['exp_pct']
@@ -113,24 +134,15 @@ def new_landmarks(detections, id, img, disp, online_data, names):
         old_objects[label] = []
         old_objects[label].append(hist)
 
-
-        ## Online operation
-        if online_data['flag']:
-            ## center pixel of the area the object is located
-            obj_cent = [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2]
-            pcl = cloud_object_center(online_data['depth_map'], obj_cent)
-            valid_transformation = online_data['robot_global_pose'].size != 0
-            lmk_global_pose = np.dot(online_data['robot_global_pose'],np.array(pcl).reshape(3,1)) if valid_transformation else np.zeros((3,1))
-            lmkEntry = (online_data['timestamp'], pcl, lmk_global_pose)
-            lmkObsv[label] = []
-            lmkObsv[label].append(lmkEntry)
+        tracked_histograms[label] = np.empty((0, hist.shape[1]))
+        tracked_histograms[label] = np.append(tracked_histograms[label], hist, axis=0)
 
         ## Put text next to the bounding box
         org = (bbox[0] + 10, bbox[1] + 20)  # org - text starting point
         txt = '{}'.format(label)
-        img = cv2.putText(disp, txt, org, cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 0, 255), 1, cv2.LINE_AA)
+        img = cv2.putText(disp, txt, org, cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (255,51, 255), 1, cv2.LINE_AA)
 
-    return img, old_objects
+    return img, old_objects, tracked_histograms
 
 class track_detections:
 
@@ -138,7 +150,7 @@ class track_detections:
     def draw_text(self, x, y):
         ## Put text next to the bounding box
         org = (int(x + 10), int(y + 20))  # org - text starting point
-        self.disp = cv2.putText(self.disp, self.txt, org, cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 0, 255), 1, cv2.LINE_AA)
+        self.disp = cv2.putText(self.disp, self.txt, org, cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (255,51, 255), 1, cv2.LINE_AA)
 
         return self
 
@@ -172,10 +184,10 @@ class track_detections:
    
         if len(kp) > 2:
             num_feat = des.shape[0]  # Number of extracted features for frame to be tested
-            des = np.dstack(np.split(des, num_feat))
+            descr = np.dstack(np.split(des, num_feat))
 
             words_stack = np.dstack([codebook] * num_feat)  ## stack words depthwise
-            diff = words_stack - des
+            diff = words_stack - descr
             dist = np.linalg.norm(diff, axis=1)
             idx = np.argmin(dist, axis=0)
             hist, n_bins = np.histogram(idx, bins=k)
@@ -209,32 +221,25 @@ class track_detections:
     ## Search if the object is observed before
     def loop_closure_detection(self,hist, box, obj_class, current_obj):
         if current_obj not in self.old_objects:
+            self.keyframes_hist = discard_tracks(self.tracked_histograms)
 
-            id_pct, id_tot, self.sampler_txt = sample(self.codebook_match,self.online_flag)
+            id_pct, id_tot, self.sampler_txt, correct_hist, correct_tracked = sample(self.codebook_match, self.keyframes_hist,
+                                                                        self.tracked_histograms, self.online_flag)
 
-            self.publish_flag = True
+            self.tracked_histograms = correct_tracked
+            self.keyframes_hist = correct_hist
             self.codebook_match = {}
 
-        #if len(self.keyframes_hist) >= 1 and current_obj not in self.keyframes_hist:
-        BoVW_match = BoVW_comparison(self.keyframes_hist, hist, self.img, self.disp, box[0], box[1], obj_class)
+        if len(self.keyframes_hist) >= 1 and current_obj not in self.keyframes_hist:
+            BoVW_match = BoVW_comparison(self.keyframes_hist, hist, self.img, self.disp, box[0], box[1], obj_class)
 
-        if current_obj not in self.codebook_match: self.codebook_match[current_obj] = []
-        if self.online_flag and current_obj not in self.lmkObsv: self.lmkObsv[current_obj] = []
+            if current_obj not in self.codebook_match: self.codebook_match[current_obj] = []
 
-        if BoVW_match.cos_pct > parameters.bow_thres:
-            ## Append found match
-            self.codebook_match[current_obj].append(BoVW_match.object)
-            if self.online_flag: self.lmkObsv[current_obj].append(track_detections.online_operation(self,box))
-                #if BoVW_match.object not in self.lmkObsv: self.lmkObsv[BoVW_match.object] = []
-                #self.lmkObsv[BoVW_match.object].append(track_detections.online_operation(self,box))
-        else:
-            self.codebook_match[current_obj].append('bad_match')
-            if self.online_flag: self.lmkObsv[current_obj].append(track_detections.online_operation(self,box))
-
-        #elif len(self.keyframes_hist) == 0 and self.online_flag:
-        #    if current_obj not in self.lmkObsv: self.lmkObsv[current_obj] = []
-            ## Append found match
-        #    self.lmkObsv[current_obj].append(track_detections.online_operation(self,box))
+            if BoVW_match.cos_pct > parameters.bow_thres:
+                ## Append found match
+                self.codebook_match[current_obj].append(BoVW_match.object)
+            else:
+                self.codebook_match[current_obj].append('bad_match')
 
         return self
 
@@ -251,7 +256,7 @@ class track_detections:
         return lmkEntry
 
     ## Same number of objects in current and previous frame
-    def local_objects_tracking(self, detections, names):
+    def local_objects_tracking(self, detections, names, frames_wo_det):
         match_to_prev = []
         test = []
         for i in range(self.new_num):           
@@ -273,27 +278,35 @@ class track_detections:
         tracks = []
         for i, det in enumerate(match_to_prev):
             (best_match_obj,best_match_pct, bbox, hist, des, obj_class) = det
-            valid_track = best_match_pct > self.match_thres
+            valid_track = best_match_pct > self.match_thres and frames_wo_det < parameters.min_samples
             if det in sorted_matches and valid_track:
                 tracks.append(det)
             else:
                 self.id += 1
                 label = obj_class + '_' + str(self.id)
+                self.tracked_histograms[label] = np.empty((0, hist.shape[1]))
                 tracks.append((label,best_match_pct, bbox, hist, des, obj_class))
 
         for det in tracks:
             (label,track_pct, bbox, hist, des, obj_class) = det   
-            self.txt = '{} {}'.format(label, round(track_pct))   
+            try:
+                self.tracked_histograms[label] = np.append(self.tracked_histograms[label], hist, axis=0)
+            except:
+                self.tracked_histograms[label] = np.empty((0, hist.shape[1]))
+                self.tracked_histograms[label] = np.append(self.tracked_histograms[label], hist, axis=0)
+            obj_name = label.split('_')
+            prnt_label = 'Fire_'+str(obj_name[1]) if obj_name[0]=='Fire Extinguisher' else label ## Fire Extinguisher is too large to display
+            self.txt = '{} {}'.format(prnt_label, round(track_pct))    
             track_detections.draw_text(self, bbox[0], bbox[1])
             self.new_objects[label] = hist
-            track_detections.loop_closure_detection(self, hist, bbox, obj_class, label)           
+            track_detections.loop_closure_detection(self, hist, bbox, obj_class, label)                     
             
         self.old_objects = self.new_objects
         self.old_num = self.new_num
 
         return self
    
-    def __init__(self, old_num, frame, disp, old_landmarks, detections, lmk_id, codebook_match, keyframes_hist, online_data, names):
+    def __init__(self, old_num, frame, disp, old_landmarks, detections, lmk_id, tracked_histograms, codebook_match, keyframes_hist, online_data, names, frames_wo_det):
         self.new_num = len(detections)
         self.old_num = old_num
         self.hessian = img_proc_param['hess_th']
@@ -310,10 +323,11 @@ class track_detections:
         self.nbins = codebook.shape[0]
         self.codebook_match = codebook_match
         self.keyframes_hist = keyframes_hist
+        self.tracked_histograms = tracked_histograms
 
         ## For running online
         self.online_flag = online_data['flag']
         self.obsv_time = online_data['timestamp']
         self.dmap = online_data['depth_map']
 
-        track_detections.local_objects_tracking(self, detections,names)
+        track_detections.local_objects_tracking(self, detections,names, frames_wo_det)

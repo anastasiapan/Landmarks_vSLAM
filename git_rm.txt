@@ -1,2 +1,7 @@
 git rm -r --cached V_SLAM_fcn/codebook/
 git rm -r --cached detections/
+git rm -r --cached cost_matrix/
+git rm -r --cached PR_plot/
+git rm -r --cached create_hists.py
+git rm -r --cached pr_plot.py
+git rm -r --cached V_SLAM_fcn/brute_force_tracker.py

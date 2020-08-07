@@ -33,7 +33,7 @@ def sample(codebook_match, histograms, tracked_histograms, online, lmkObsv):
     correct_tracked = dict(tracked_histograms)
     lmk_correct = dict(lmkObsv)
     for track_id in codebook_match:
-        if len(codebook_match[track_id]) > parameters.min_samples:
+        if len(codebook_match[track_id]) >= parameters.min_samples:
             unique_ids = {i: codebook_match[track_id].count(i) for i in codebook_match[track_id]}
             unique_ids = sorted(unique_ids.items(), key=operator.itemgetter(1), reverse=True)
 
@@ -61,9 +61,18 @@ def sample(codebook_match, histograms, tracked_histograms, online, lmkObsv):
             #txt = "I am {} ".format(round(id_pct)) + "% sure that I saw {}.".format(best_match)
 
             if best_match != 'bad_match':
-                txt = "I am {} ".format(round(id_tot)) + "% sure that I saw {}.".format(best_match)
+                #txt = "I am {} ".format(round(id_tot)) + "% sure that I saw {}.".format(best_match)
+                label = track_id.split('_')
+                bmatch = best_match.split('_')
+                prnt_label = 'Fire' if label[0]=='Fire Extinguisher' else label 
+                prnt_track = prnt_label + '_' + str(label[1]) if label[0]=='Fire Extinguisher' else track_id
+                prnt_match = prnt_label + '_' + str(bmatch[1]) if bmatch[0]=='Fire Extinguisher' else best_match
+                txt = "Match " + prnt_track + ": " +   prnt_match + " " + str(round(id_tot))
             else:
-                txt = ' '
+                label = track_id.split('_')
+                prnt_label = 'Fire' if label[0]=='Fire Extinguisher' else label 
+                prnt_track = prnt_label + '_' + str(label[1]) if label[0]=='Fire Extinguisher' else track_id
+                txt = "Match not found for " + prnt_track
             print(txt)
             print(unique_ids)
             print("-------------------------------------------------------------------------------")
@@ -148,7 +157,7 @@ def new_landmarks(detections, id, img, disp, online_data, names):
         ## Put text next to the bounding box
         org = (bbox[0] + 10, bbox[1] + 20)  # org - text starting point
         txt = '{}'.format(label)
-        img = cv2.putText(disp, txt, org, cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 0, 255), 1, cv2.LINE_AA)
+        img = cv2.putText(disp, txt, org, cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (51, 255, 255), 1, cv2.LINE_AA)
 
     return img, old_objects, tracked_histograms, lmkObsv
 
@@ -158,7 +167,7 @@ class track_detections:
     def draw_text(self, x, y):
         ## Put text next to the bounding box
         org = (int(x + 10), int(y + 20))  # org - text starting point
-        self.disp = cv2.putText(self.disp, self.txt, org, cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 0, 255), 1, cv2.LINE_AA)
+        self.disp = cv2.putText(self.disp, self.txt, org, cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (51, 255, 255), 1, cv2.LINE_AA)
 
         return self
 
@@ -190,15 +199,18 @@ class track_detections:
         ## Calculate histogram
         k = codebook.shape[0]
 
-        num_feat = des.shape[0]  # Number of extracted features for frame to be tested
-        des = np.dstack(np.split(des, num_feat))
+        try:
+            num_feat = des.shape[0]  # Number of extracted features for frame to be tested
+            des = np.dstack(np.split(des, num_feat))
 
-        words_stack = np.dstack([codebook] * num_feat)  ## stack words depthwise
-        diff = words_stack - des
-        dist = np.linalg.norm(diff, axis=1)
-        idx = np.argmin(dist, axis=0)
-        hist, n_bins = np.histogram(idx, bins=k)
-        hist = hist.reshape(1, k)
+            words_stack = np.dstack([codebook] * num_feat)  ## stack words depthwise
+            diff = words_stack - des
+            dist = np.linalg.norm(diff, axis=1)
+            idx = np.argmin(dist, axis=0)
+            hist, n_bins = np.histogram(idx, bins=k)
+            hist = hist.reshape(1, k)
+        except:
+            hist = np.zeros((1,k))
 
         return kp, des, hist
 
@@ -309,7 +321,8 @@ class track_detections:
             (label,track_pct, bbox, hist, des, obj_class) = det 
 
             self.tracked_histograms[label] = np.append(self.tracked_histograms[label], hist, axis=0)
-            prnt_label = 'Fire' if label=='Fire Extinguisher' else label ## Fire Extinguisher is too large to display
+            obj_name = label.split('_')
+            prnt_label = 'Fire_' + str(obj_name[1]) if obj_name[0]=='Fire Extinguisher' else label ## Fire Extinguisher is too large to display
             self.txt = '{} {}'.format(prnt_label, round(track_pct))   
             track_detections.draw_text(self, bbox[0], bbox[1])
             self.new_objects[label] = hist
