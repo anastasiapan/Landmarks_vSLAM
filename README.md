@@ -10,6 +10,9 @@ Written by:
 Landmarks are detected with You-Only-Look-Once - YOLO object detection  
 Graph SLAM by cartographer-project  
 
+Cool videos of the results
+
+
 Completed as a master thesis at Technical University of Denmark in collaboration with Mobile Industrial Robots  
 Systems that we use:  
 https://github.com/ultralytics/yolov5  
@@ -43,10 +46,12 @@ Attempt for a setting up and use tutorial 😅😅😅
    `pip install primesense`  
    
 5. This method is based on Bag-of-Visual-Words and SURF  
+   If not familiar with this method watch this amazing video:  
+   https://www.youtube.com/watch?v=a4cFONdc6nc  
    Whatever vocabulary can be used (based on SURF)  
    OR create your own (which we did) following the instructions in `codebook_creation/create_codebook.py`  
 
 That's all!
 
 PS. This is a master's project. None of us is a computer scientist so our code might not be perfect  
-but we do believe there are some cool ideas and the results look awesome 😄😊
+but we do believe there are some cool ideas in it and the results look awesome 😄😊
