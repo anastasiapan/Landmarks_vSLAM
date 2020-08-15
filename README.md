@@ -59,5 +59,5 @@ Attempt for a setting up and use tutorial 😅😅😅
 
 That's all!
 
-PS. This is a master's project. None of us is a computer scientist, we were both students 🎓🎓🎓 when we wrote it  
-so our code might not be perfect but we do believe there are some cool ideas in it and the results look awesome 😄😊
+PS. This is a master's project. None of us is a computer scientist, we were both students 🎓🎓🎓 when we wrote it so  
+our code might not be perfect but we do believe there are some cool ideas in it and the results look awesome 😄😊
