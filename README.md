@@ -44,4 +44,9 @@ Attempt for a setting up and use tutorial 😅😅😅
    
 5. This method is based on Bag-of-Visual-Words and SURF  
    Whatever vocabulary can be used (based on SURF)  
-   OR create your own (which we did) following the instructions in `pip install primesense`
+   OR create your own (which we did) following the instructions in `codebook_creation/create_codebook.py`  
+
+That's all!
+
+PS. This is a master's project. None of us is a computer scientist so our code might not be perfect  
+but we do believe there are some cool ideas and the results look awesome 😄😊
