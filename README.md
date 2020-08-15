@@ -47,7 +47,9 @@ Attempt for a setting up and use tutorial 😅😅😅
    
 5. This method is based on Bag-of-Visual-Words and SURF  
    If not familiar with this method watch this amazing video:  
-   https://www.youtube.com/watch?v=a4cFONdc6nc  
+   https://www.youtube.com/watch?v=a4cFONdc6nc 
+   and check out this repo  
+   https://github.com/ovysotska/in_simple_english/blob/master/bag_of_visual_words.ipynb  
    Whatever vocabulary can be used (based on SURF)  
    OR create your own (which we did) following the instructions in `codebook_creation/create_codebook.py`  
 
