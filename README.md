@@ -2,4 +2,4 @@
 
 Written by: 
   * Anastasia Panaretou https://github.com/anastasiapan
-  * Phillip Mastrup 
+  * Phillip Mastrup https://github.com/PMastrup
