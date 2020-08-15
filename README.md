@@ -41,11 +41,15 @@ Attempt for a setting up and use tutorial 😅😅😅
    We trained for our own objects - currently traffic cones and fire extinguishers  
    If you don't feel like training COCO can be used  
    
-4. Since an RGB-D camera is used you need to setup OpenNI library from pip     
+4. Find your camera drivers:  
+   We used astra from Orbecc  
+   https://astra-wiki.readthedocs.io/en/latest/installation.html  
+
+5. Since an RGB-D camera is used you need to setup OpenNI library from pip     
    `pip install openni`  
    `pip install primesense`  
    
-5. This method is based on Bag-of-Visual-Words and SURF  
+6. This method is based on Bag-of-Visual-Words and SURF  
    If not familiar with this method watch this amazing video:  
    https://www.youtube.com/watch?v=a4cFONdc6nc 
    and check out this repo  
@@ -55,5 +59,5 @@ Attempt for a setting up and use tutorial 😅😅😅
 
 That's all!
 
-PS. This is a master's project. None of us is a computer scientist so our code might not be perfect  
-but we do believe there are some cool ideas in it and the results look awesome 😄😊
+PS. This is a master's project. None of us is a computer scientist, we were both students 🎓🎓🎓 when we wrote it  
+so our code might not be perfect but we do believe there are some cool ideas in it and the results look awesome 😄😊
