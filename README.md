@@ -33,7 +33,7 @@ Attempt for a setting up and use tutorial 😅😅😅
    https://google-cartographer-ros.readthedocs.io/en/latest/compilation.html  
 
 3. Cartographer system modifications  
-   We did not create a package for this. You can just merge the files under 'cartographer_ros' as the directories  
+   We did not create a package for this. You can just merge the files under 'cartographer_ros' in the directories  
    they appear to be. They should be under the path: *catkin_ws/src/cartographer_ros/cartographer_ros*  
    Only one source file has been slightly modified to visualise landmarks with 3D models - completely optional  
 
