@@ -36,7 +36,12 @@ Attempt for a setting up and use tutorial 😅😅😅
 
 3. Setup YOLO by ultralytics https://github.com/ultralytics/yolov5  
    We trained for our own objects - currently traffic cones and fire extinguishers  
+   If you don't feel like training COCO can be used  
    
 4. Since an RGB-D camera is used you need to setup OpenNI library from pip     
    `pip install openni`  
-   `pip install primesense`    
+   `pip install primesense`  
+   
+5. This method is based on Bag-of-Visual-Words and SURF  
+   Whatever vocabulary can be used (based on SURF)  
+   OR create your own (which we did) following the instructions in `pip install primesense`
