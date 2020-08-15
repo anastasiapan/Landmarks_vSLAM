@@ -16,6 +16,16 @@ import parameters
 codebook = parameters.codebook
 img_proc_param = parameters.img_proc_param
 
+'''
+Function: discard_tracks(finished_tracks)
+Discards undersampled keyframes
+
+Inputs:
+    - finished_tracks : Keframes histograms
+
+Returns/class members:
+    - final_tracks : Updated keyframes
+'''
 def discard_tracks(finished_tracks):
     final_tracks = dict(finished_tracks)
     for key in finished_tracks:
@@ -24,7 +34,23 @@ def discard_tracks(finished_tracks):
 
     return final_tracks
 
-def sample(codebook_match, histograms, tracked_histograms, online, lmkObsv):
+'''
+Function: sample(codebook_match, histograms, tracked_histograms, lmkObsv)
+Samples BoVW matches
+
+Inputs:
+    - codebook_match : Keyframes matches for a complete track
+    - histograms : Keyframes histograms
+    - tracked_histograms : Histograms of completed tracks
+    - lmkObsv : Landmark observations
+
+Returns:
+    It updates: histograms, tracked_histograms, lmkObsv
+    - id_pct : Percentage of majority matches within valid matches
+    - id_tot : Percentage of majority matches within all matches
+    - txt : Text to be printed on screen
+'''
+def sample(codebook_match, histograms, tracked_histograms, lmkObsv):
     ## Correct the false ids
     id_pct = 0
     id_tot = 0
@@ -32,8 +58,10 @@ def sample(codebook_match, histograms, tracked_histograms, online, lmkObsv):
     final_hist = dict(histograms)
     correct_tracked = dict(tracked_histograms)
     lmk_correct = dict(lmkObsv)
+    ## Search through found matches
     for track_id in codebook_match:
-        if len(codebook_match[track_id]) >= parameters.min_samples:
+        if len(codebook_match[track_id]) >= parameters.min_samples: ## Enough samples
+            ## Count matches and arange in descending order
             unique_ids = {i: codebook_match[track_id].count(i) for i in codebook_match[track_id]}
             unique_ids = sorted(unique_ids.items(), key=operator.itemgetter(1), reverse=True)
 
@@ -44,11 +72,6 @@ def sample(codebook_match, histograms, tracked_histograms, online, lmkObsv):
                 best_match = unique_ids[1][0]
                 best_pct = unique_ids[1][1]
 
-            text = "I saw {} ".format(track_id) + " as {} {} ".format(best_match, best_pct) + "times!"
-
-            #np.append(tracked_histograms[track_id],
-
-            print(text)
             sum_det = 0
             sum_tot = 0
             for i in range(len(unique_ids)):
@@ -56,40 +79,52 @@ def sample(codebook_match, histograms, tracked_histograms, online, lmkObsv):
                     sum_det = sum_det + unique_ids[i][1]
                 sum_tot = sum_tot + unique_ids[i][1]
 
+            ## Calculate loop closure confidences
             id_pct = best_pct*100/sum_det if sum_det != 0 else 0
             id_tot = best_pct*100/sum_tot if sum_tot != 0 else 0
-            #txt = "I am {} ".format(round(id_pct)) + "% sure that I saw {}.".format(best_match)
 
-            if best_match != 'bad_match':
-                #txt = "I am {} ".format(round(id_tot)) + "% sure that I saw {}.".format(best_match)
+            if best_match != 'bad_match': ## Not a good match is found - new landmark
                 label = track_id.split('_')
                 bmatch = best_match.split('_')
                 prnt_label = 'Fire' if label[0]=='Fire Extinguisher' else label 
                 prnt_track = prnt_label + '_' + str(label[1]) if label[0]=='Fire Extinguisher' else track_id
                 prnt_match = prnt_label + '_' + str(bmatch[1]) if bmatch[0]=='Fire Extinguisher' else best_match
                 txt = "Match " + prnt_track + ": " +   prnt_match + " " + str(round(id_tot))
-            else:
+            else: ## Potential loop closure
                 label = track_id.split('_')
                 prnt_label = 'Fire' if label[0]=='Fire Extinguisher' else label 
                 prnt_track = prnt_label + '_' + str(label[1]) if label[0]=='Fire Extinguisher' else track_id
                 txt = "Match not found for " + prnt_track
-            print(txt)
-            print(unique_ids)
-            print("-------------------------------------------------------------------------------")
 
-            if id_tot > parameters.loop_cl_thres and best_match!='bad_match':
+            if id_tot > parameters.loop_cl_thres and best_match!='bad_match': ## Potential loop closure
                 del final_hist[track_id]
                 final_hist[best_match] = np.append(final_hist[best_match],histograms[track_id], axis=0)
 
                 del correct_tracked[track_id]
                 correct_tracked[best_match] = np.append(tracked_histograms[best_match], histograms[track_id], axis=0)
 
-                if online:
-                    del lmk_correct[track_id]
-                    lmk_correct[best_match] = lmkObsv[track_id]
+                del lmk_correct[track_id]
+                lmk_correct[best_match] = lmkObsv[track_id]
 
     return id_pct, id_tot, txt, final_hist, correct_tracked, lmk_correct
 
+'''
+Function: new_landmarks(detections, id, img, disp, online_data, names)
+Samples BoVW matches
+
+Inputs:
+    - detections : Objects detected
+    - id : Landmarks id counter
+    - img : Input image
+    - disp : Image to be outputted with useful printouts
+    - online data: Dictionary that contains depth map, robot's global pose and timestamp
+    - names : classes names
+
+Returns:
+    - old_objects : previous to-be detections
+    - tracked_histograms : Initialised tracks
+    - lmkObsv : Landmarks with id+pose w.r.t robot
+'''
 def new_landmarks(detections, id, img, disp, online_data, names):
     old_objects = {}
     tracked_histograms = {}
@@ -118,6 +153,7 @@ def new_landmarks(detections, id, img, disp, online_data, names):
         kp, des = surf.detectAndCompute(gray, mask)
 
         hess = hess_th
+        ## If no features are found reduce Hessian threshold
         while des is None:
             hess_th = hess_th - 50
             surf = cv2.xfeatures2d.SURF_create(hess)
@@ -143,16 +179,14 @@ def new_landmarks(detections, id, img, disp, online_data, names):
         tracked_histograms[label] = np.empty((0, hist.shape[1]))
         tracked_histograms[label] = np.append(tracked_histograms[label], hist, axis=0)
 
-        ## Online operation
-        if online_data['flag']:
-            ## center pixel of the area the object is located
-            obj_cent = [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2]
-            pcl = cloud_object_center(online_data['depth_map'], obj_cent)
-            valid_transformation = online_data['robot_global_pose'].size != 0
-            lmk_global_pose = np.dot(online_data['robot_global_pose'],np.array(pcl).reshape(3,1)) if valid_transformation else np.zeros((3,1))
-            lmkEntry = (online_data['timestamp'], pcl, lmk_global_pose)
-            lmkObsv[label] = []
-            lmkObsv[label].append(lmkEntry)
+        ## center pixel of the area the object is located
+        obj_cent = [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2]
+        pcl = cloud_object_center(online_data['depth_map'], obj_cent)
+        valid_transformation = online_data['robot_global_pose'].size != 0
+        lmk_global_pose = np.dot(online_data['robot_global_pose'],np.array(pcl).reshape(3,1)) if valid_transformation else np.zeros((3,1))
+        lmkEntry = (online_data['timestamp'], pcl, lmk_global_pose)
+        lmkObsv[label] = []
+        lmkObsv[label].append(lmkEntry)
 
         ## Put text next to the bounding box
         org = (bbox[0] + 10, bbox[1] + 20)  # org - text starting point
@@ -161,6 +195,25 @@ def new_landmarks(detections, id, img, disp, online_data, names):
 
     return img, old_objects, tracked_histograms, lmkObsv
 
+'''
+Class: track_detections
+Tracks landmarks and finds the best match in the keyframes
+
+Members:
+    - old_num : Number of detections in previous frame
+    - frame : Input image
+    - disp : Image to be outputted with useful printouts
+    - old_landmarks : Detections in previous frame
+    - detections : Current detections
+    - lmk_id : Landmarks id counter
+    - tracked_histograms : Up-to-date tracked frames which contain landmarks
+    - codebook_match : Keyframes matches for a complete track
+    - final_tracks : Keyframes
+    - online data: Dictionary that contains depth map, robot's global pose and timestamp
+    - lmkObsv : Dictionary of recent landmarks observations
+    - names : classes names
+    - frames_wo_det : Number of frames without detection
+'''
 class track_detections:
 
     ## Draw text on frame
@@ -241,7 +294,7 @@ class track_detections:
             self.keyframes_hist = discard_tracks(self.tracked_histograms)
 
             id_pct, id_tot, self.sampler_txt, correct_hist, correct_tracked, lmk_correct = sample(self.codebook_match, self.keyframes_hist,
-                                                                        self.tracked_histograms, self.online_flag, self.lmkObsv)
+                                                                        self.tracked_histograms, self.lmkObsv)
 
             self.tracked_histograms = correct_tracked
             self.keyframes_hist = correct_hist
@@ -254,19 +307,17 @@ class track_detections:
             BoVW_match = BoVW_comparison(self.keyframes_hist, hist, self.img, self.disp, box[0], box[1], obj_class)
 
             if current_obj not in self.codebook_match: self.codebook_match[current_obj] = []
-            if self.online_flag and current_obj not in self.lmkObsv: self.lmkObsv[current_obj] = []
+            if current_obj not in self.lmkObsv: self.lmkObsv[current_obj] = []
 
             if BoVW_match.cos_pct > parameters.bow_thres:
                 ## Append found match
                 self.codebook_match[current_obj].append(BoVW_match.object)
-                if self.online_flag: self.lmkObsv[current_obj].append(track_detections.online_operation(self,box))
-                    #if BoVW_match.object not in self.lmkObsv: self.lmkObsv[BoVW_match.object] = []
-                    #self.lmkObsv[BoVW_match.object].append(track_detections.online_operation(self,box))
+                self.lmkObsv[current_obj].append(track_detections.online_operation(self,box))
             else:
                 self.codebook_match[current_obj].append('bad_match')
-                if self.online_flag: self.lmkObsv[current_obj].append(track_detections.online_operation(self,box))
+                self.lmkObsv[current_obj].append(track_detections.online_operation(self,box))
 
-        elif len(self.keyframes_hist) == 0 and self.online_flag:
+        elif len(self.keyframes_hist) == 0:
             if current_obj not in self.lmkObsv: self.lmkObsv[current_obj] = []
             ## Append found match
             self.lmkObsv[current_obj].append(track_detections.online_operation(self,box))
@@ -351,9 +402,6 @@ class track_detections:
         self.nbins = codebook.shape[0]
         self.codebook_match = codebook_match
         self.keyframes_hist = final_tracks
-
-        ## For running online
-        self.online_flag = online_data['flag']
         self.obsv_time = online_data['timestamp']
         self.dmap = online_data['depth_map']
         self.robot_gtrans = online_data['robot_global_pose']

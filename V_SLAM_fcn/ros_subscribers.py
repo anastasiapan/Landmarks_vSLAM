@@ -5,6 +5,13 @@ from visualization_msgs.msg import MarkerArray, Marker
 from scipy.spatial.transform import Rotation as rot
 import numpy as np
 
+'''
+Class: robot_global_pose
+Subscriber to the robot's global pose calculated by Cartographer
+
+Returns:
+    - Transformation matrix --> from robot frame to global frame
+'''
 class robot_global_pose:
     def __init__(self):
         self.glob_pose = PoseStamped()
@@ -15,7 +22,6 @@ class robot_global_pose:
         self.glob_pose = pose
 
     def trans_mat(self):
-        #curr_pose = t_stamp == self.glob_pose.header.stamp
         invalid_quat = self.glob_pose.pose.orientation.x == 0 and self.glob_pose.pose.orientation.y == 0 and self.glob_pose.pose.orientation.z == 0 and self.glob_pose.pose.orientation.w == 0
         if invalid_quat:
             self.trans = np.array([])
@@ -25,6 +31,13 @@ class robot_global_pose:
             theta = eul[0]
             self.trans = np.array([[np.cos(theta), -np.sin(theta), self.glob_pose.pose.position.x], [np.sin(theta), np.cos(theta), self.glob_pose.pose.position.y], [0, 0, 1]])
 
+'''
+Class: robot_global_pose
+Subscriber to the landmarks' global poses calculated by Cartographer
+
+Returns:
+    - x,y position of the landmarks in the map
+'''
 class landmarks_global_pose:
     def __init__(self):
         self.landmarks = MarkerArray()

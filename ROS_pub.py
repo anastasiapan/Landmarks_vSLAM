@@ -6,6 +6,7 @@ from cartographer_ros_msgs.msg import LandmarkEntry, LandmarkList
 from parameters import r, T_cam_imu
 frame_id = 'imu_frame'
 
+## Landmarks publisher
 def landmark_pub(lmk_obsv, lmk_id):
     landmark_list = LandmarkList()
     landmark = LandmarkEntry()

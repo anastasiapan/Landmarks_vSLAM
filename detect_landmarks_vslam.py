@@ -1,7 +1,4 @@
 #!/usr/bin/env python
-## Resolve cv2 and ROS conflict of python versions
-#import sys
-#sys.path.remove('/opt/ros/melodic/lib/python2.7/dist-packages')
 import cv2
 import argparse
 
@@ -20,20 +17,16 @@ import parameters
 
 width = 640
 height = 480
-
-online_flag = True ## Run online or from a video
 #----------------------------------------------------------------------------------#
 
 ## ROS landmark publisher ---------------------------------------------------------#
-if online_flag:
-    #sys.path.append('/opt/ros/melodic/lib/python2.7/dist-packages')
-    import rospy
-    from cartographer_ros_msgs.msg import LandmarkEntry, LandmarkList
-    from ROS_pub import *
-    TOPIC = '/v_landmarks'
-    ## ROS landmark publisher node
-    rospy.init_node('landmark_publisher', anonymous=True)
-    lmk_pub = rospy.Publisher(TOPIC, LandmarkList, queue_size=1000)
+import rospy
+from cartographer_ros_msgs.msg import LandmarkEntry, LandmarkList
+from ROS_pub import *
+TOPIC = '/v_landmarks'
+## ROS landmark publisher node
+rospy.init_node('landmark_publisher', anonymous=True)
+lmk_pub = rospy.Publisher(TOPIC, LandmarkList, queue_size=1000)
 #----------------------------------------------------------------------------------#
 
 def detect(save_img=False):
@@ -111,7 +104,7 @@ def detect(save_img=False):
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
 
         dmap = d_map
-        if online_flag and dmap is not None:
+        if dmap is not None:
             d4d = np.uint8(dmap.astype(float) * 255 / 2 ** 12 - 1)  # Correct the range. Depth images are 12bits
             d4d = 255 - cv2.cvtColor(d4d, cv2.COLOR_GRAY2RGB)
             timestamp = rospy.Time.now()
@@ -122,10 +115,9 @@ def detect(save_img=False):
             img = img.unsqueeze(0)
 
         ## Online operation data
-        online_data = {'flag': online_flag,
-                       'timestamp': 0 if not online_flag else timestamp,
-                       'depth_map': 0 if not online_flag else dmap,
-                       'robot_global_pose': 0 if not online_flag else rbt_glb_pose.trans}
+        online_data = {'timestamp': timestamp,
+                       'depth_map': dmap,
+                       'robot_global_pose': rbt_glb_pose.trans}
         # Inference
         t1 = torch_utils.time_synchronized()
         pred = model(img, augment=opt.augment)[0]
@@ -181,15 +173,13 @@ def detect(save_img=False):
                     det_info = detections[i].data.cpu().tolist()
                     bbox = [int(j) for j in det_info[0:4]]  ## bbox = [x1 y1 x2 y2]
 
-                    ## If running online check if the object is within range
-                    if online_flag:
-                        obj_cent = [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2]  ## [x y] center pixel of the area the object is located
-                        ## Optimal operation range: 0.6-5m
-                        #print(dmap[int(obj_cent[1]), int(obj_cent[0])])
-                        im_rgb = cv2.circle(im_rgb, (int(obj_cent[0]), int(obj_cent[1])), 5, (0,255,0), -1)
-                        if online_flag: d4d = cv2.circle(d4d, (int(obj_cent[0]), int(obj_cent[1])), 5, (0,0,255), -1)
-                        if dmap[int(obj_cent[1]), int(obj_cent[0])] < 800 or dmap[int(obj_cent[1]), int(obj_cent[0])] > 3500:
-                            objects = torch.cat([detections[0:i], detections[i+1:]])
+                    ## Check if the object is within range
+                    obj_cent = [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2]  ## [x y] center pixel of the area the object is located
+                    ## Optimal operation range: 0.8-3.5m
+                    im_rgb = cv2.circle(im_rgb, (int(obj_cent[0]), int(obj_cent[1])), 5, (0,255,0), -1)
+                    d4d = cv2.circle(d4d, (int(obj_cent[0]), int(obj_cent[1])), 5, (0,0,255), -1)
+                    if dmap[int(obj_cent[1]), int(obj_cent[0])] < 800 or dmap[int(obj_cent[1]), int(obj_cent[0])] > 3500:
+                        objects = torch.cat([detections[0:i], detections[i+1:]])
 
                 if not objects.cpu().tolist(): objects = None
 
@@ -204,6 +194,7 @@ def detect(save_img=False):
                     codebook_match = {}
                     correct_hist = {}
                 else:
+                    ## Track objects and serch for best match in keyframes
                     tracker = track_detections(old_num,  im0, im_rgb, old_objects, objects, lmk_id, tracked_histograms, codebook_match, correct_hist, online_data, lmkObsv, names, frames_wo_det)
                     lmk_id = tracker.id
                     old_objects = tracker.old_objects
@@ -216,7 +207,7 @@ def detect(save_img=False):
                     frames_wo_det = 0
 
                     if tracker.publish_flag:
-                        print('_____________________________ FRAME _____________________________')
+                        ## Filter spatially and publish correct landmarks to cartographer
                         lmk_gp = lmk_global.landmarks_global_poses ## Global poses of landmarks
                         filtered_obsv = spatial_filter(lmkObsv, correct_hist, tracked_histograms, lmk_gp, lmk_obsv_poses, spatial_filter_text, lmk_pub, lmk_id)
 
@@ -239,13 +230,7 @@ def detect(save_img=False):
                           cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 0, 255), 2)
         # Stream results
         if view_img or save_img:
-            if online_flag:
-                #display = np.hstack((d4d, img2))
-                #cv2.imshow('output', img2)
-                out_vid_write.write(img2)
-            else:
-                #cv2.imshow('output', img2)
-                out_vid_write.write(img2)
+            out_vid_write.write(img2)
 
             if cv2.waitKey(1) == ord('q'):  # q to quit
                 raise StopIteration

@@ -5,8 +5,32 @@ import rospy
 import operator
 from ROS_pub import *
 
+'''
+Class: spatial_filter
+Sorts out outliers in case there is a false match
+
+Inputs:
+    - lmkObsv : Dictionary of recent landmarks observations
+    - correct_hist : Keyframes histograms
+    - tracked_histograms : Up-to-date tracked frames which contain landmarks
+    - lmk_gp : global poses of landmarks calculated by the Cartographer system
+    - lmk_obsv_poses : available global poses of landmarks
+    - spatial_filter_text : Spatial filter result to be printed on screen
+    - lmk_publisher : Landmarks to be sent to the Cartographer's pose graph
+    - lmk_id : current counter for landmarks ids
+
+Returns/class members:
+    It updates : lmk_obsv_poses, lmk_id, correct_hist, tracked_histograms, spatial_filter_text
+    - in_area : Boolean variable that indicates if the matched observation is within range
+    - occupied : Boolean variable that indicates if the observed landmark is on a free space
+    - lmk_publisher : Landmarks to be sent to the Cartographer's pose graph
+'''
 class spatial_filter():
 
+    '''
+    Class memeber function: insert_cartographer_poses
+    Use landmarks global poses returned from the Cartographer if available
+    '''
     def insert_cartographer_poses(self):
         for i, key in enumerate(self.lmk_obsv_poses):
             try:
@@ -16,13 +40,16 @@ class spatial_filter():
 
         return self
 
+    '''
+    Class memeber function: pose_check
+    Update boolean variables - when True:
+        * in_area : Observation and match are close
+        * occupied : Area of current observation occupied
+    '''
     def pose_check(self, lmkPose, lmk_id):
-        print(lmk_id)
         if lmk_id in self.lmk_obsv_poses:
-            print('Landmark observed before')
             prevPose = self.lmk_obsv_poses[lmk_id]
             self.in_area = (lmkPose[0] - prevPose[0])**2 + (lmkPose[1] - prevPose[1])**2 <= parameters.r**2
-            print((lmkPose[0] - prevPose[0])**2 + (lmkPose[1] - prevPose[1])**2) 
             
         obj_class = lmk_id.split('_')
         obj_class = obj_class[0]  
@@ -30,18 +57,24 @@ class spatial_filter():
             prev_id = prev_landmark.split('_')
             prev_id = prev_id[0]
             if lmk_id != prev_landmark and prev_id == obj_class:
-                print('Landmark ' + prev_landmark + ' pose check: ')
                 prevPose = self.lmk_obsv_poses[prev_landmark]
-                print(prevPose)
                 self.occupied = (lmkPose[0] - prevPose[0])**2 + (lmkPose[1] - prevPose[1])**2 <= parameters.r**2
-                print((lmkPose[0] - prevPose[0])**2 + (lmkPose[1] - prevPose[1])**2)
                 if self.occupied:
                     break
-
-        print('in area: ' + str(self.in_area))
-        print('occupied: ' + str(self.occupied))
         return self
 
+    '''
+    Class memeber function: filtering
+    Perform the Spatial filter checks and update the keyframes and tracks:
+        * Loop closure: 
+            Check if the global pose is close
+            YES : Correct loop closure - send to pose graph
+            NO : False loop closure - discard
+        * New landmark: 
+            Check if the area of the observation is free
+            YES : New landmark
+            NO : Not accepted as a new landmark - discard
+    '''
     def filtering(self, lmk_publisher, correct_hist, tracked_histograms):
         for key in self.lmkObsv:
             if len(self.lmkObsv[key]) > parameters.min_samples:
@@ -49,40 +82,29 @@ class spatial_filter():
                 gpose = np.array(list(map(operator.itemgetter(2), lmk)))
                 gpose = gpose[:,:,0].transpose()
                 gpose = np.true_divide(gpose.sum(1),(gpose!=0).sum(1)).reshape(3,1)
-                print('- - - - - -- - -- - - - - -- - - - -- - - ')
-                print('I saw ' + key + ' with a global pose of:')
-                print(gpose)
                 spatial_filter.pose_check(self,gpose, key)
 
                 if self.in_area and not self.occupied:
-                    print('Valid observation')
                     self.spatial_filter_text = 'Valid observation'
-                    print(' Published id: ' + key)
                     for i in range(len(lmk)):
                         lmk_gpose = lmk[i][2]
                         lmk_list = landmark_pub(lmk[i], key)
                         lmk_publisher.publish(lmk_list)
 
                     if key not in self.lmk_obsv_poses:
-                        print('not in cartographer - insert manually calculated global pose')
-                        print(gpose)
                         self.lmk_obsv_poses[key] = gpose
 
-                elif not self.in_area and not self.occupied:
-                    print('matched object is out of range - unoccupied space - new object')  
+                elif not self.in_area and not self.occupied: 
                     self.spatial_filter_text = 'match out of range - free space - new object'                   
                     new_id = key.split('_')
                     self.lmk_id += 1
                     new_id = new_id[0] + '_' + str(self.lmk_id)
-                    print(' Published id: ' + new_id)
                     for i in range(len(lmk)):
                         lmk_gpose = lmk[i][2]
                         lmk_list = landmark_pub(lmk[i], new_id)
                         lmk_publisher.publish(lmk_list)
 
                     if new_id not in self.lmk_obsv_poses:
-                        print('not in cartographer - insert manually calculated global pose')
-                        print(gpose)
                         self.lmk_obsv_poses[new_id] = gpose
 
                     self.lmk_copy[new_id] = self.lmkObsv[key]
@@ -94,12 +116,10 @@ class spatial_filter():
                     del self.tracked_hists[key]
 
                 else:
-                    print('match out of range - space occupied - ignore')
                     self.spatial_filter_text = 'match out of range - space occupied - ignore'
                     del self.lmk_copy[key]
                     del self.keyframes_copy[key]
                     del self.tracked_hists[key]
-                print('- - - - - -- - -- - - - - -- - - - -- - - ')
         
         self.lmkObsv = self.lmk_copy
         self.lmkObsv = {}

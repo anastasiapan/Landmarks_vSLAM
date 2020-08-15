@@ -1,0 +1,140 @@
+<!--
+  Copyright 2018 The Cartographer Authors
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+
+<robot name="mir-100">
+  <material name="orange">
+    <color rgba="1.0 0.5 0.2 1" />
+  </material>
+  <material name="gray">
+    <color rgba="0.2 0.2 0.2 1" />
+  </material>
+
+  <link name="imu_frame">
+    <visual>
+      <origin xyz="0 0 0" />
+      <geometry>
+        <box size="0.06 0.04 0.02" />
+      </geometry>
+      <material name="orange" />
+    </visual>
+  </link>
+
+  <link name="front_laser_link">
+    <visual>
+      <origin xyz="0 0 0" />
+      <geometry>
+        <cylinder length="0.05" radius="0.03" />
+      </geometry>
+      <material name="gray" />
+    </visual>
+  </link>
+
+  <link name="back_laser_link">
+    <visual>
+      <origin xyz="0 0 0" />
+      <geometry>
+        <cylinder length="0.05" radius="0.03" />
+      </geometry>
+      <material name="gray" />
+    </visual>
+  </link>
+
+  <link name="base_footprint" />
+
+  <joint name="base_footprint_joint" type="fixed">
+    <parent link="base_footprint" />
+    <child link="base_link" />
+  </joint>
+
+  <link name="base_link" >
+      <visual name="MiR100__body">
+      <origin rpy="0 0 0" xyz="0 0 0.2"/>
+      <geometry>
+        <mesh filename="file:///home/anastasia/catkin_ws/src/cartographer_ros/cartographer_ros/urdf/MiR100/meshes/body.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+    </visual>
+<visual name="MiR100__WheelLeftFront">
+      <origin rpy="0 0 0" xyz="0.262 0.22  0.261"/>
+      <geometry>
+        <mesh filename="file:///home/anastasia/catkin_ws/src/cartographer_ros/cartographer_ros/urdf/MiR100/meshes/WheelMain.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+    </visual>
+    <visual name="MiR100__WheelLeftBack">
+      <origin rpy="0 0 0" xyz="-0.334  0.22   0.261"/>
+      <geometry>
+        <mesh filename="file:///home/anastasia/catkin_ws/src/cartographer_ros/cartographer_ros/urdf/MiR100/meshes/WheelMain.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+    </visual>
+    <visual name="MiR100__WheelRightFront">
+      <origin rpy="0 0 0" xyz="0.262 -0.217  0.261"/>
+      <geometry>
+        <mesh filename="file:///home/anastasia/catkin_ws/src/cartographer_ros/cartographer_ros/urdf/MiR100/meshes/WheelMain.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+    </visual>
+    <visual name="MiR100__WheelRightBack">
+      <origin rpy="0 0 0" xyz="-0.334 -0.217  0.261"/>
+      <geometry>
+        <mesh filename="file:///home/anastasia/catkin_ws/src/cartographer_ros/cartographer_ros/urdf/MiR100/meshes/WheelMain.obj" scale="1.0 1.0 1.0"/>
+      </geometry>
+    </visual>
+
+  </link>
+
+  <joint name="imu_frame_joint" type="fixed">
+    <parent link="base_link" />
+    <child link="imu_frame" />
+    <origin xyz="0 0 0.25" />
+  </joint>
+
+  <link name="laser_link" />
+
+  <joint name="laser_link_joint" type="fixed">
+    <parent link="base_link" />
+    <child link="laser_link" />
+  </joint>
+
+  <joint name="front_laser_link_joint" type="fixed">
+    <parent link="laser_link" />
+    <child link="front_laser_link" />
+    <!-- rotation xyzw 0 0 0.382684280765 0.923879181092 -->
+    <origin rpy="0 0 0.785" xyz="0.42 0.238 0.200000" />
+  </joint>
+
+  <joint name="back_laser_link_joint" type="fixed">
+    <parent link="laser_link" />
+    <child link="back_laser_link" />
+    <!-- rotation xyzw 0 0 -0.923880586764 0.382680887164 -->
+    <origin rpy="0 0 -2.356" xyz="-0.365 -0.238 0.200000" />
+  </joint>
+
+  <link name="camera">
+    <visual>
+      <origin xyz="0 0 0" />
+      <geometry>
+        <box size="0.06 0.04 0.02" />
+      </geometry>
+      <material name="orange" />
+    </visual>
+  </link>
+  
+  <joint name="camera_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="camera" />
+    <origin rpy="1.57 0 1.57" xyz="0.375 0 0.43" />
+  </joint> 
+
+</robot>
+
