@@ -1,7 +1,7 @@
 # Landmark-based Visual SLAM
 
 Landmark-based Visual SLAM 🤖🤖🤖  
-The idea behind the project is to perform landmark-based visual SLAM detecting landmarks with object detection  
+The idea behind the project is to perform landmark-based visual SLAM detecting static objects as landmarks with object detection  
 Currently the system is not 100% V-SLAM, it uses LIDAR scans too and detects landmarks with YOLO - still awesome though 😄  
 
 Written by: 
@@ -39,7 +39,7 @@ Attempt for a setting up and use tutorial 😅😅😅
 
 3. Setup YOLO by ultralytics https://github.com/ultralytics/yolov5  
    We trained for our own objects - currently traffic cones and fire extinguishers  
-   If you don't feel like training COCO can be used  
+   If you don't feel like training, COCO can be used  
    
 4. Find your camera drivers:  
    We used astra from Orbecc  
