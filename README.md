@@ -57,7 +57,9 @@ Attempt for a setting up and use tutorial 😅😅😅
    Whatever vocabulary can be used (based on SURF)  
    OR create your own (which we did) following the instructions in `codebook_creation/create_codebook.py`  
 
-That's all!
+That's all! Now you can run our superprogram like this:
+
+* Start the detector with python: `python install openni`
 
 PS. This is a master's project. None of us is a computer scientist, we were both students 🎓🎓🎓 when we wrote it so  
 our code might not be perfect but we do believe there are some cool ideas in it and the results look awesome 😄😊
