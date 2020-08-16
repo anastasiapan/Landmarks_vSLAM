@@ -1,7 +1,8 @@
 # Landmark-based Visual SLAM
 
 Landmark-based Visual SLAM 🤖🤖🤖  
-Currently the system is not 100% V-SLAM, it is aided by LIDAR scans too and detects landmarks with YOLO - still awesome though 😄  
+The idea behind the project is to perform landmark-based visual SLAM detecting landmarks with object detection  
+Currently the system is not 100% V-SLAM, it uses LIDAR scans too and detects landmarks with YOLO - still awesome though 😄  
 
 Written by: 
   * Anastasia Panaretou https://github.com/anastasiapan
@@ -11,7 +12,6 @@ Landmarks are detected with You-Only-Look-Once - YOLO object detection
 Graph SLAM by cartographer-project  
 
 Cool videos of the results
-
 
 Completed as a master thesis at Technical University of Denmark in collaboration with Mobile Industrial Robots  
 Systems that we use:  
