@@ -59,8 +59,12 @@ Attempt for a setting up and use tutorial 😅😅😅
 
 That's all! Now you can run our superprogram like this:
 
-* Start the detector with python : `python detect_landmarks_vslam.py`
-* Launch cartographer : `roslaunch cartographer_ros `
+Before running it please become familiar with cartographer's ROS integration:  
+https://google-cartographer-ros.readthedocs.io/en/latest/index.html  
+
+* Start the detector with python : `python detect_landmarks_vslam.py`  
+* Launch cartographer : `roslaunch cartographer_ros vslam_2D_landmarks.launch`  
+* If you want to test on a bagfile : `roslaunch cartographer_ros landmarks_2D.launch bag_filename:=path/to/your/bagfile.bag`  
 
 PS. This is a master's project. None of us is a computer scientist, we were both students 🎓🎓🎓 when we wrote it so  
 our code might not be perfect but we do believe there are some cool ideas in it and the results look awesome 😄😊
