@@ -11,9 +11,9 @@ Written by:
 Landmarks are detected with You-Only-Look-Once - YOLO object detection  
 Graph SLAM by cartographer-project  
 
-Cool videos of the results
-https://www.youtube.com/watch?v=k3LRF8AGJbI&t=49s
-https://www.youtube.com/watch?v=6s2ePNo1SqA&t=27s
+Cool videos of the results  
+https://www.youtube.com/watch?v=k3LRF8AGJbI&t=49s  
+https://www.youtube.com/watch?v=6s2ePNo1SqA&t=27s  
 
 Completed as a master thesis at Technical University of Denmark in collaboration with Mobile Industrial Robots  
 Systems that we use:  
